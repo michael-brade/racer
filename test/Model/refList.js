@@ -814,7 +814,7 @@ describe('refList', function() {
     });
     // This is a bug. Currently skipping it, since it is a complex edge case and
     // really may require thinking how events + mutations are propogated in refs
-    it.skip('correctly dereferences chained lists/refs when items are removed', function(done) {
+    it('correctly dereferences chained lists/refs when items are removed', function(done) {
       var model = setup();
       model.add('colors', {
         id: 'blue',

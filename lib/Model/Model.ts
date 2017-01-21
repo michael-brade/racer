@@ -1,30 +1,44 @@
 import uuid from 'uuid';
 
-Model.INITS = [];
 
 export default Model;
 
-function Model(options) {
-  this.root = this;
+interface Model {
 
-  const inits = Model.INITS;
-  if (!options) options = {};
-  this.debug = options.debug || {};
-  for (let i = 0; i < inits.length; i++) {
-    inits[i](this, options);
-  }
+  root: Model;
+
+  debug: {
+    remoteMutations: boolean,
+    disableSubmit: boolean
+  };
 }
 
-Model.prototype.id = function() {
-  return uuid.v4();
-};
 
-Model.prototype._child = function() {
-  return new ChildModel(this);
-};
+class Model {
+  public static INITS = [];
+  public static ChildModel = ChildModel;
 
+  constructor(options) {
+    this.root = this;
 
-Model.ChildModel = ChildModel;
+    const inits = Model.INITS;
+    if (!options) options = {};
+    this.debug = options.debug || {};
+    for (let i = 0; i < inits.length; i++) {
+      inits[i](this, options);
+    }
+  }
+
+  id() {
+    return uuid.v4();
+  }
+
+  _child() {
+    return new ChildModel(this);
+  }
+  
+}
+
 
 class ChildModel extends Model {
   constructor(model) {

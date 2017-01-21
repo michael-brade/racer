@@ -38,17 +38,17 @@ function patchFromEvent(type, segments, eventArgs, refList) {
   // Mutation on the `from` output itself
   if (segmentsLength === fromLength) {
     if (type === 'insert') {
-      var index = eventArgs[0];
-      var values = eventArgs[1];
-      var ids = setNewToValues(model, refList, values);
+      let index = eventArgs[0];
+      let values = eventArgs[1];
+      let ids = setNewToValues(model, refList, values);
       model._insert(refList.idsSegments, index, ids);
       return;
     }
 
     if (type === 'remove') {
-      var index = eventArgs[0];
-      var howMany = eventArgs[1].length;
-      var ids = model._remove(refList.idsSegments, index, howMany);
+      let index = eventArgs[0];
+      let howMany = eventArgs[1].length;
+      let ids = model._remove(refList.idsSegments, index, howMany);
       // Delete the appropriate items underneath `to` if the `deleteRemoved`
       // option was set true
       if (refList.deleteRemoved) {
@@ -63,13 +63,13 @@ function patchFromEvent(type, segments, eventArgs, refList) {
     if (type === 'move') {
       const from = eventArgs[0];
       const to = eventArgs[1];
-      var howMany = eventArgs[2];
+      let howMany = eventArgs[2];
       model._move(refList.idsSegments, from, to, howMany);
       return;
     }
 
     // Change of the entire output
-    var values = (type === 'change') ?
+    let values = (type === 'change') ?
       eventArgs[0] : model._get(refList.fromSegments);
     // Set ids to empty list if output is set to null
     if (!values) {
@@ -172,10 +172,10 @@ function patchToEvent(type, segments, eventArgs, refList) {
       const removeIndex = eventArgs[0];
       var values = eventArgs[1];
       const howMany = values.length;
-      for (const i = removeIndex, len = removeIndex + howMany; i < len; i++) {
+      for (let i = removeIndex, len = removeIndex + howMany; i < len; i++) {
         var indices = refList.indicesByItem(values[i]);
         if (!indices) continue;
-        for (const j = 0, indicesLen = indices.length; j < indicesLen; j++) {
+        for (let j = 0, indicesLen = indices.length; j < indicesLen; j++) {
           var outSegments = refList.fromSegments.concat(indices[j]);
           model._set(outSegments, undefined);
         }
@@ -220,7 +220,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
   // If changing the item itself, it will also have to be re-set on the
   // array created by the refList
   if (type === 'change' || type === 'load' || type === 'unload') {
-    const value;
+    let value;
     let previous;
     if (type === 'change') {
       value = eventArgs[0];
@@ -373,7 +373,20 @@ Model.prototype.refList = function() {
 };
 
 class RefList {
-  constructor(model, from, to, ids, options) {
+  private model: Model;
+  private from: string;
+  private to: string;
+  private fromSegments: string[];
+  private toSegments: string[];
+
+  private options: {
+    deleteRemoved: boolean
+  };
+
+  private deleteRemoved: boolean;
+
+
+  constructor(model: Model, from: string, to: string, ids, options) {
     this.model = model && model.pass({$refList: this});
     this.from = from;
     this.to = to;

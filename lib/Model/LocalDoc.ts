@@ -1,9 +1,13 @@
 import Doc from './Doc';
 import util from '../util';
 
+import Model from './Model';
 
 export default class LocalDoc extends Doc {
-  constructor(model, collectionName, id, data) {
+
+  private data;
+
+  constructor(model: Model, collectionName: string, id, data) {
     super(model, collectionName, id);
     this.data = data;
     this._updateCollectionData();

@@ -80,7 +80,12 @@ Model.prototype._removeAllFilters = function(segments) {
 class FromMap {}
 
 class Filters {
-  constructor(model) {
+
+  private model: Model;
+  private fromMap: FromMap;
+
+
+  constructor(model: Model) {
     this.model = model;
     this.fromMap = new FromMap();
   }

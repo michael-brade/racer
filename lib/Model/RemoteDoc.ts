@@ -7,10 +7,17 @@
  */
 
 import Doc from './Doc';
+import Model from './Model';
 import util from '../util';
 
 export default class RemoteDoc extends Doc {
-  constructor(model, collectionName, id, snapshot, collection) {
+
+  private model: Model;
+  private shareDoc;
+
+  private debugMutations: boolean;
+
+  constructor(model: Model, collectionName, id, snapshot, collection) {
     // This is a bit messy, but we have to immediately register this doc on the
     // collection that added it, so that when we create the shareDoc and the
     // connection emits the 'doc' event, we'll find this doc instead of

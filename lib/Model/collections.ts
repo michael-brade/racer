@@ -98,6 +98,13 @@ Model.prototype.destroy = function(subpath) {
 };
 
 class Collection {
+  private model: Model;
+  private name: string;
+  private Doc: Doc;
+  private docs: DocMap;
+  private data: CollectionData;
+
+
   constructor(model, name, Doc) {
     this.model = model;
     this.name = name;

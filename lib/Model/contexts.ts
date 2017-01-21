@@ -1,10 +1,9 @@
 /**
  * Contexts are useful for keeping track of the origin of subscribes.
  */
-
 import Model from './Model';
-
 import CollectionCounter from './CollectionCounter';
+
 
 Model.INITS.push(model => {
   model.root._contexts = new Contexts();
@@ -46,6 +45,17 @@ class SubscribedQueries {}
 
 
 class Context {
+  private model: Model;
+  private id; // TODO
+
+  private fetchedDocs: CollectionCounter;
+  private subscribedDocs: CollectionCounter;
+  private createdDocs: CollectionCounter;
+
+  private fetchedQueries: FetchedQueries;
+  private subscribedQueries: SubscribedQueries;
+
+
   constructor(model, id) {
     this.model = model;
     this.id = id;
@@ -106,35 +116,35 @@ class Context {
 
   unload() {
     const model = this.model;
-    for (var hash in this.fetchedQueries) {
-      var query = model.root._queries.map[hash];
+    for (let hash in this.fetchedQueries) {
+      let query = model.root._queries.map[hash];
       if (!query) continue;
-      var count = this.fetchedQueries[hash];
+      let count = this.fetchedQueries[hash];
       while (count--) query.unfetch();
     }
-    for (var hash in this.subscribedQueries) {
-      var query = model.root._queries.map[hash];
+    for (let hash in this.subscribedQueries) {
+      let query = model.root._queries.map[hash];
       if (!query) continue;
-      var count = this.subscribedQueries[hash];
+      let count = this.subscribedQueries[hash];
       while (count--) query.unsubscribe();
     }
-    for (var collectionName in this.fetchedDocs.collections) {
-      var collection = this.fetchedDocs.collections[collectionName];
-      for (var id in collection) {
-        var count = collection[id];
+    for (let collectionName in this.fetchedDocs.collections) {
+      let collection = this.fetchedDocs.collections[collectionName];
+      for (let id in collection) {
+        let count = collection[id];
         while (count--) model.unfetchDoc(collectionName, id);
       }
     }
-    for (var collectionName in this.subscribedDocs.collections) {
-      var collection = this.subscribedDocs.collections[collectionName];
-      for (var id in collection) {
-        var count = collection[id];
+    for (let collectionName in this.subscribedDocs.collections) {
+      let collection = this.subscribedDocs.collections[collectionName];
+      for (let id in collection) {
+        let count = collection[id];
         while (count--) model.unsubscribeDoc(collectionName, id);
       }
     }
-    for (var collectionName in this.createdDocs.collections) {
-      var collection = this.createdDocs.collections[collectionName];
-      for (var id in collection) {
+    for (let collectionName in this.createdDocs.collections) {
+      let collection = this.createdDocs.collections[collectionName];
+      for (let id in collection) {
         model._maybeUnloadDoc(collectionName, id);
       }
     }

@@ -2,7 +2,7 @@ import util from '../util';
 import Model from './Model';
 import defaultFns from './defaultFns';
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   model.root._filters = new Filters(model);
   model.on('all', filterListener);
   function filterListener(segments, eventArgs) {
@@ -77,12 +77,21 @@ Model.prototype._removeAllFilters = function(segments) {
   }
 };
 
-class FromMap {}
+class FromMap {
+  [from: string]: Filter;
+}
 
-class Filters {
+interface FilterOptions {
+  skip: number;
+  limit: number;
+}
 
-  private model: Model;
-  private fromMap: FromMap;
+type compareFn = (a: any, b: any) => number;
+
+export class Filters {
+
+  public model: Model;
+  public fromMap: FromMap;
 
 
   constructor(model: Model) {
@@ -108,8 +117,41 @@ class Filters {
   }
 }
 
+
 class Filter {
-  constructor(filters, path, filterFn, sortFn, inputPaths, options) {
+  private filters: Filters;
+  private model: Model;
+
+  public path: string;
+  public segments: string[];
+
+  public filterName: string;
+  public sortName: string;
+
+  private filterFn: Function;   // TODO: args and return?
+  private sortFn: compareFn;
+
+  public inputPaths: string[];
+  public inputsSegments: string[];
+
+  private idsSegments: string[];
+  private from: string;
+  private fromSegments: string[];
+
+  public skip: number;
+  public limit: number;
+
+  public options: FilterOptions;
+  public bundle: boolean;
+
+  constructor(
+    filters: Filters,
+    path: string,
+    filterFn: Function | string,
+    sortFn: compareFn | string,
+    inputPaths: string[],
+    options: FilterOptions
+  ) {
     this.filters = filters;
     this.model = filters.model.pass({$filter: this});
     this.path = path;
@@ -138,7 +180,7 @@ class Filter {
     this.fromSegments = null;
   }
 
-  filter(fn) {
+  filter(fn: Function | string) {
     if (typeof fn === 'function') {
       this.filterFn = fn;
       this.bundle = false;
@@ -153,7 +195,7 @@ class Filter {
     return this;
   }
 
-  sort(fn) {
+  sort(fn: compareFn | string): Filter {
     if (!fn) fn = 'asc';
     if (typeof fn === 'function') {
       this.sortFn = fn;
@@ -169,7 +211,7 @@ class Filter {
     return this;
   }
 
-  _slice(results) {
+  _slice(results: Array<>): Array<> {
     if (this.skip == null && this.limit == null) return results;
     const begin = this.skip || 0;
     // A limit of zero is equivalent to setting no limit
@@ -178,7 +220,7 @@ class Filter {
     return results.slice(begin, end);
   }
 
-  getInputs() {
+  getInputs(): Array<> {
     if (!this.inputsSegments) return;
     const inputs = [];
     for (let i = 0, len = this.inputsSegments.length; i < len; i++) {
@@ -248,7 +290,7 @@ class Filter {
     this.model.pass(pass, true)._setArrayDiff(this.idsSegments, ids);
   }
 
-  ref(from) {
+  ref(from: string) {
     from = this.model.path(from);
     this.from = from;
     this.fromSegments = from.split('.');

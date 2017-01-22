@@ -1,10 +1,14 @@
-const defaultFns = module.exports = new DefaultFns();
+// const defaultFns = module.exports = new DefaultFns();
 
-defaultFns.reverse = new FnPair(getReverse, setReverse);
-defaultFns.asc = asc;
-defaultFns.desc = desc;
 
-function DefaultFns() {}
+export default class DefaultFns {
+  static reverse = new FnPair(getReverse, setReverse);
+  static asc = asc;
+  static desc = desc;
+}
+
+
+
 function FnPair(get, set) {
   this.get = get;
   this.set = set;

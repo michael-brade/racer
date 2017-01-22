@@ -1,9 +1,9 @@
-import Model from './Model';
+import Model, { Options } from './Model';
 const defaultType = require('sharedb/lib/client').types.defaultType;
 
 Model.BUNDLE_TIMEOUT = 10 * 1000;
 
-Model.INITS.push((model, options) => {
+Model.INITS.push((model: Model, options: Options) => {
   model.root.bundleTimeout = options.bundleTimeout || Model.BUNDLE_TIMEOUT;
 });
 

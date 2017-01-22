@@ -1,11 +1,14 @@
 import Model from './Model';
+import Doc from './Doc';
 import LocalDoc from './LocalDoc';
+
 import util from '../util';
 
-class CollectionMap {}
-class ModelData {}
-class DocMap {}
-class CollectionData {}
+
+export class CollectionMap {}
+export class ModelData {}
+export class DocMap {}
+export class CollectionData {}
 
 Model.INITS.push(model => {
   model.root.collections = new CollectionMap();
@@ -97,7 +100,7 @@ Model.prototype.destroy = function(subpath) {
   }
 };
 
-class Collection {
+export class Collection {
   private model: Model;
   private name: string;
   private Doc: Doc;

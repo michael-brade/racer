@@ -2,13 +2,13 @@ import util from '../util';
 import Model from './Model';
 import defaultFns from './defaultFns';
 
-class NamedFns {}
+export class NamedFns {}
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   model.root._namedFns = new NamedFns();
   model.root._fns = new Fns(model);
   model.on('all', fnListener);
-  function fnListener(segments, eventArgs) {
+  function fnListener(segments: string, eventArgs: any[]) {
     const pass = eventArgs[eventArgs.length - 1];
     const map = model.root._fns.fromMap;
     for (const path in map) {
@@ -29,7 +29,7 @@ Model.prototype.fn = function(name, fns) {
   this.root._namedFns[name] = fns;
 };
 
-function parseStartArguments(model, args, hasPath) {
+function parseStartArguments(model: Model, args, hasPath) {
   const last = args.pop();
   let fns, name;
   if (typeof last === 'string') {
@@ -92,29 +92,35 @@ Model.prototype._stopAll = function(segments) {
   }
 };
 
-class FromMap {}
+class FromMap {
+  [name: string]: Fn;
+}
 
-class Fns {
-  constructor(model) {
+export class Fns {
+  private model: Model;
+  private nameMap: NamedFns;
+  public fromMap: FromMap;
+
+  constructor(model: Model) {
     this.model = model;
     this.nameMap = model.root._namedFns;
     this.fromMap = new FromMap();
   }
 
-  get(name, inputPaths, fns, options) {
+  get(name: string, inputPaths: string[], fns, options: FnOptions) {
     fns || (fns = this.nameMap[name] || defaultFns[name]);
     const fn = new Fn(this.model, name, null, inputPaths, fns, options);
     return fn.get();
   }
 
-  start(name, path, inputPaths, fns, options) {
+  start(name: string, path: string, inputPaths: string[], fns, options: FnOptions) {
     fns || (fns = this.nameMap[name] || defaultFns[name]);
     const fn = new Fn(this.model, name, path, inputPaths, fns, options);
     this.fromMap[path] = fn;
     return fn.onInput();
   }
 
-  stop(path) {
+  stop(path: string): Fn {
     const fn = this.fromMap[path];
     delete this.fromMap[path];
     return fn;
@@ -136,8 +142,52 @@ class Fns {
   }
 }
 
-class Fn {
-  constructor(model, name, from, inputPaths, fns, options) {
+type Mode = 'diffDeep' | 'diff' | 'arrayDeep' | 'array';
+type Copy = 'output' | 'input' | 'both' | 'none';
+
+interface FnOptions {
+  copy?: Copy;
+  mode?: Mode;
+}
+
+interface FnGet {
+}
+interface FnGetSet {
+  get: Function;
+  set: Function;
+}
+
+function isBidir(fns): fns is FnGetSet {
+  if (fns.get)
+    return true;
+
+  return false;
+}
+
+export class Fn {
+  private model: Model;
+  public name: string;
+  public from: string;
+  private getFn: Function;
+  private setFn: Function;
+  public inputPaths: string[];
+  public fromSegments: string[];
+  public inputsSegments: string[];
+
+  private copyInput: boolean;
+  private copyOutput: boolean;
+
+  private mode: Mode;
+  public options: FnOptions;
+
+  constructor(
+    model: Model,
+    name: string,
+    from: string,
+    inputPaths: string[],
+    fns: Function | FnGetSet,
+    options: FnOptions
+  ) {
     this.model = model.pass({$fn: this});
     this.name = name;
     this.from = from;
@@ -146,8 +196,8 @@ class Fn {
     if (!fns) {
       throw new TypeError('Model function not found: ' + name);
     }
-    this.getFn = fns.get || fns;
-    this.setFn = fns.set;
+    this.getFn = isBidir(fns) ? fns.get : fns;
+    this.setFn = isBidir(fns) ? fns.set : undefined;
     this.fromSegments = from && from.split('.');
     this.inputsSegments = [];
     for (let i = 0; i < this.inputPaths.length; i++) {
@@ -164,7 +214,8 @@ class Fn {
     this.mode = (options && options.mode) || 'diffDeep';
   }
 
-  apply(fn, inputs) {
+
+  apply(fn, inputs: any[]) {
     for (let i = 0, len = this.inputsSegments.length; i < len; i++) {
       const input = this.model._get(this.inputsSegments[i]);
       inputs.push(this.copyInput ? util.deepCopy(input) : input);
@@ -176,7 +227,7 @@ class Fn {
     return this.apply(this.getFn, []);
   }
 
-  set(value, pass) {
+  set(value, pass: Object) {
     if (!this.setFn) return;
     const out = this.apply(this.setFn, [value]);
     if (!out) return;
@@ -188,18 +239,18 @@ class Fn {
     }
   }
 
-  onInput(pass) {
+  onInput(pass: Object) {
     const value = (this.copyOutput) ? util.deepCopy(this.get()) : this.get();
     this._setValue(this.model.pass(pass, true), this.fromSegments, value);
     return value;
   }
 
-  onOutput(pass) {
+  onOutput(pass: Object) {
     const value = this.model._get(this.fromSegments);
     return this.set(value, pass);
   }
 
-  _setValue(model, segments, value) {
+  _setValue(model: Model, segments, value): void {
     if (this.mode === 'diffDeep') {
       model._setDiffDeep(segments, value);
     } else if (this.mode === 'arrayDeep') {

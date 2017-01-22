@@ -2,25 +2,26 @@
  * Contexts are useful for keeping track of the origin of subscribes.
  */
 import Model from './Model';
+import { ChildModel } from './Model';
 import CollectionCounter from './CollectionCounter';
 
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   model.root._contexts = new Contexts();
   model.root.setContext('root');
 });
 
-Model.prototype.context = function(id) {
+Model.prototype.context = function(id): ChildModel {
   const model = this._child();
   model.setContext(id);
   return model;
 };
 
-Model.prototype.setContext = function(id) {
+Model.prototype.setContext = function(id: string): void {
   this._context = this.getOrCreateContext(id);
 };
 
-Model.prototype.getOrCreateContext = function(id) {
+Model.prototype.getOrCreateContext = function(id: string) {
   const context = this.root._contexts[id] ||
     (this.root._contexts[id] = new Context(this, id));
   return context;
@@ -38,7 +39,7 @@ Model.prototype.unloadAll = function() {
   }
 };
 
-class Contexts {}
+export class Contexts {}
 
 class FetchedQueries {}
 class SubscribedQueries {}
@@ -46,7 +47,7 @@ class SubscribedQueries {}
 
 class Context {
   private model: Model;
-  private id; // TODO
+  private id: string; // 'root', or.... TODO
 
   private fetchedDocs: CollectionCounter;
   private subscribedDocs: CollectionCounter;
@@ -56,7 +57,7 @@ class Context {
   private subscribedQueries: SubscribedQueries;
 
 
-  constructor(model, id) {
+  constructor(model: Model, id: string) {
     this.model = model;
     this.id = id;
     this.fetchedDocs = new CollectionCounter();
@@ -78,23 +79,23 @@ class Context {
     };
   }
 
-  fetchDoc(collectionName, id) {
+  fetchDoc(collectionName: string, id) {
     this.fetchedDocs.increment(collectionName, id);
   }
 
-  subscribeDoc(collectionName, id) {
+  subscribeDoc(collectionName: string, id) {
     this.subscribedDocs.increment(collectionName, id);
   }
 
-  unfetchDoc(collectionName, id) {
+  unfetchDoc(collectionName: string, id) {
     this.fetchedDocs.decrement(collectionName, id);
   }
 
-  unsubscribeDoc(collectionName, id) {
+  unsubscribeDoc(collectionName: string, id) {
     this.subscribedDocs.decrement(collectionName, id);
   }
 
-  createDoc(collectionName, id) {
+  createDoc(collectionName: string, id) {
     this.createdDocs.increment(collectionName, id);
   }
 

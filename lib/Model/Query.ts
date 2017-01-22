@@ -3,11 +3,11 @@ import Model from './Model';
 const defaultType = require('sharedb/lib/client').types.defaultType;
 
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   model.root._queries = new Queries();
 });
 
-Model.prototype.query = function(collectionName, expression, options) {
+Model.prototype.query = (collectionName, expression, options) => {
   expression = this.sanitizeQuery(expression);
   // DEPRECATED: Passing in a string as the third argument specifies the db
   // option for backward compatibility
@@ -94,7 +94,7 @@ Model.prototype._initQueries = function(items) {
 };
 
 
-class Queries {
+export class Queries {
   constructor() {
     // Map is a flattened map of queries by hash. Currently used in contexts
     this.map = {};
@@ -138,7 +138,7 @@ class Queries {
 }
 
 export default class Query {
-  constructor(model, collectionName, expression, options) {
+  constructor(model: Model, collectionName: string, expression, options) {
     this.model = model.pass({$query: this});
     this.collectionName = collectionName;
     this.expression = expression;
@@ -298,7 +298,7 @@ export default class Query {
   }
 
   _removeMapIds(ids) {
-    for (let i = ids.length; i--;) {
+    for (let i = ids.length; i--; ) {
       const id = ids[i];
       delete this.idMap[id];
     }
@@ -318,7 +318,7 @@ export default class Query {
   }
 
   _addMapIds(ids) {
-    for (let i = ids.length; i--;) {
+    for (let i = ids.length; i--; ) {
       const id = ids[i];
       this.idMap[id] = true;
     }
@@ -328,7 +328,7 @@ export default class Query {
     const addedIds = [];
     const removedIds = [];
     const newMap = {};
-    for (let i = ids.length; i--;) {
+    for (let i = ids.length; i--; ) {
       var id = ids[i];
       newMap[id] = true;
       if (this.idMap[id]) continue;

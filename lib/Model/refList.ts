@@ -374,10 +374,14 @@ Model.prototype.refList = function() {
 
 class RefList {
   private model: Model;
+
   private from: string;
   private to: string;
+  private ids: string;
+
   private fromSegments: string[];
   private toSegments: string[];
+  private idsSegments: string[];
 
   private options: {
     deleteRemoved: boolean
@@ -386,7 +390,7 @@ class RefList {
   private deleteRemoved: boolean;
 
 
-  constructor(model: Model, from: string, to: string, ids, options) {
+  constructor(model: Model, from: string, to: string, ids: string, options?: { deleteRemoved: boolean }) {
     this.model = model && model.pass({$refList: this});
     this.from = from;
     this.to = to;
@@ -450,7 +454,7 @@ class RefList {
     if (!ids) return;
     let indices;
     let index = -1;
-    for (;;) {
+    for (; ; ) {
       index = ids.indexOf(id, index + 1);
       if (index === -1) break;
       if (indices) {
@@ -483,7 +487,9 @@ class RefList {
 
 class FromMap {}
 
-class RefLists {
+export class RefLists {
+  public fromMap: FromMap;
+
   constructor() {
     this.fromMap = new FromMap();
   }

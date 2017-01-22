@@ -55,9 +55,9 @@ function addIndexListeners(model) {
   function onIndexChange(segments, patch) {
     const toPathMap = model._refs.toPathMap;
     const refs = toPathMap.get(segments) || [];
-    console.log("onIndexChange - segments: ", segments, "refs: ", refs)
+    console.log('onIndexChange - segments: ', segments, 'refs: ', refs);
 
-    for(let i = 0, len = refs.length; i < len; i++) {
+    for (let i = 0, len = refs.length; i < len; i++) {
       const ref = refs[i];
       const from = ref.from;
       if (!(ref.updateIndices &&
@@ -220,7 +220,7 @@ Model.prototype._removeAllRefs = function(segments) {
 };
 Model.prototype._removePathMapRefs = function(segments, map) {
   const refs = map.getList(segments);
-  for(let i = 0, len = refs.length; i < len; i++) {
+  for (let i = 0, len = refs.length; i < len; i++) {
     const ref = refs[i];
     this._removeRef(ref.fromSegments, ref.from);
   }
@@ -279,8 +279,22 @@ function noopDereference(segments) {
   return segments;
 }
 
-class Ref {
-  constructor(model, from, to, options) {
+
+
+export class Ref {
+  private model: Model;
+
+  private from: string;
+  private to: string;
+
+  public fromSegments: string[];
+  public toSegments: string[];
+  public parentTos: string[];
+  
+  private updateIndices: boolean;
+
+
+  constructor(model: Model, from: string, to: string, options?: { updateIndices: boolean }) {
     this.model = model && model.pass({$ref: this});
     this.from = from;
     this.to = to;
@@ -295,14 +309,18 @@ class Ref {
   }
 }
 
-class Refs {
+export class Refs {
+  private parentToPathMap: PathListMap;
+  private toPathMap: PathListMap;
+  public fromPathMap: PathMap;
+
   constructor() {
     this.parentToPathMap = new PathListMap();
     this.toPathMap = new PathListMap();
     this.fromPathMap = new PathMap();
   }
 
-  add(ref) {
+  add(ref: Ref) {
     this.fromPathMap.add(ref.fromSegments, ref);
     this.toPathMap.add(ref.toSegments, ref);
     for (let i = 0, len = ref.parentTos.length; i < len; i++) {
@@ -310,7 +328,7 @@ class Refs {
     }
   }
 
-  remove(from) {
+  remove(from?: string): Ref {
     const ref = this.fromPathMap.get((from || '').split('.'));
     if (!ref) return;
     this.fromPathMap.delete(ref.fromSegments);
@@ -325,7 +343,7 @@ class Refs {
     const out = [];
     const refs = this.fromPathMap.getList([]);
 
-    for(let i = 0, len = refs.length; i < len; i++) {
+    for (let i = 0, len = refs.length; i < len; i++) {
       const ref = refs[i];
       out.push([ref.from, ref.to]);
     }
@@ -334,58 +352,60 @@ class Refs {
 }
 
 class PathMap {
+  private map: { [path: string]: Ref };
+
   constructor() {
     this.map = {};
   }
 
-  add(segments, item) {
+  add(segments: string[], item: Ref) {
     let map = this.map;
 
-    for(let i = 0, len = segments.length - 1; i < len; i++) {
-      map[segments[i]] = map[segments[i]] || {};
+    for (let i = 0, len = segments.length - 1; i < len; i++) {
+      map[segments[i]] = map[segments[i]] || {}; // TODO: why empty Ref instead of undefined? useful??
       map = map[segments[i]];
     }
 
-    map[segments[segments.length - 1]] = {"$item": item};
+    map[segments[segments.length - 1]] = {'$item': item};
   }
 
-  get(segments) {
+  get(segments: string[]): Ref {
     const val = this._get(segments);
 
     return (val && val['$item']) ? val['$item'] : void 0;
   }
 
-  _get(segments) {
+  _get(segments: string[]) {
     let val = this.map;
 
-    for(let i = 0, len = segments.length; i < len; i++) {
+    for (let i = 0, len = segments.length; i < len; i++) {
       val = val[segments[i]];
-      if(!val) return;
+      if (!val) return;
     }
 
     return val;
   }
 
-  getList(segments) {
+  getList(segments: string[]) {
     const obj = this._get(segments);
 
     return flattenObj(obj);
   }
 
-  delete(segments) {
+  delete(segments: string[]): void {
     del(this.map, segments.slice(0), true);
   }
 }
 
-function flattenObj(obj) {
-  if(!obj) return [];
+function flattenObj(obj): any[] {
+  if (!obj) return [];
 
   let arr = [];
   const keys = Object.keys(obj);
-  if(obj['$item']) arr.push(obj['$item']);
+  if (obj['$item']) arr.push(obj['$item']);
 
-  for(let i = 0, len = keys.length; i < len; i++) {
-    if(keys[i] === '$item') continue;
+  for (let i = 0, len = keys.length; i < len; i++) {
+    if (keys[i] === '$item') continue;
 
     arr = arr.concat(flattenObj(obj[keys[i]]));
   }
@@ -393,11 +413,11 @@ function flattenObj(obj) {
   return arr;
 }
 
-function del(map, segments, safe) {
+function del(map, segments: string[], safe: boolean): boolean {
   const segment = segments.shift();
 
-  if(!segments.length) {
-    if(safe) {
+  if (!segments.length) {
+    if (safe) {
       delete map[segment];
       return false;
     } else {
@@ -406,13 +426,13 @@ function del(map, segments, safe) {
   }
 
   const nextMap = map[segment];
-  if(!nextMap) return true;
+  if (!nextMap) return true;
 
   const nextSafe = (Object.keys(nextMap).length > 1);
   const remove = del(nextMap, segments, nextSafe);
 
-  if(remove) {
-    if(safe) {
+  if (remove) {
+    if (safe) {
       delete map[segment];
       return false;
     } else {
@@ -422,49 +442,51 @@ function del(map, segments, safe) {
 }
 
 class PathListMap {
+  private map: { [segment: string]: Ref };  // TODO: really Ref?
+
   constructor() {
     this.map = {};
   }
 
-  add(segments, item) {
+  add(segments: string[], item) {
     let map = this.map;
 
-    for(let i = 0, len = segments.length - 1; i < len; i++) {
-      map[segments[i]] = map[segments[i]] || {"$items": []};
+    for (let i = 0, len = segments.length - 1; i < len; i++) {
+      map[segments[i]] = map[segments[i]] || {'$items': []};
       map = map[segments[i]];
     }
 
     const segment = segments[segments.length - 1];
 
-    map[segment] = map[segment] || {"$items": []};
+    map[segment] = map[segment] || {'$items': []};
     map[segment]['$items'].push(item);
   }
 
   get(segments, onlyAtLevel) {
     let val = this.map;
 
-    for(let i = 0, len = segments.length; i < len; i++) {
+    for (let i = 0, len = segments.length; i < len; i++) {
       val = val[segments[i]];
-      if(!val) return [];
+      if (!val) return [];
     }
 
-    if(onlyAtLevel) return (val['$items'] || []);
+    if (onlyAtLevel) return (val['$items'] || []);
 
     return flatten(val);
   }
 
-  delete(segments, item) {
+  delete(segments: string[], item) {
     delList(this.map, segments.slice(0), item, true);
   }
 }
 
 function flatten(obj) {
   const arr = obj['$items'] || [];
-	console.log("****** FLATTEN ******")
+	console.log('****** FLATTEN ******');
   const keys = Object.keys(obj);
 
-  for(let i = 0, len = keys.length; i < len; i++) {
-    if(keys[i] === '$items') continue;
+  for (let i = 0, len = keys.length; i < len; i++) {
+    if (keys[i] === '$items') continue;
 
     arr.concat(flatten(obj[keys[i]]));
   }
@@ -475,14 +497,14 @@ function flatten(obj) {
 function delList(map, segments, item, safe) {
   const segment = segments.shift();
 
-  if(!segments.length) {
-    if(!map[segment] || !map[segment]['$items']) return true;
+  if (!segments.length) {
+    if (!map[segment] || !map[segment]['$items']) return true;
 
     const items = map[segment]['$items'];
     const keys = Object.keys(map[segment]);
 
-    if(items.length < 2 && keys.length < 2) {
-      if(safe) {
+    if (items.length < 2 && keys.length < 2) {
+      if (safe) {
         delete map[segment];
         return false;
       } else {
@@ -491,20 +513,20 @@ function delList(map, segments, item, safe) {
     } else {
       const i = items.indexOf(item);
 
-      if(i > -1) items.splice(i, 1);
+      if (i > -1) items.splice(i, 1);
 
       return false;
     }
   }
 
   const nextMap = map[segment];
-  if(!nextMap) return true;
+  if (!nextMap) return true;
 
   const nextSafe = (Object.keys(nextMap).length > 2 || nextMap['$items'].length);
   const remove = delList(nextMap, segments, item, nextSafe);
 
-  if(remove) {
-    if(safe) {
+  if (remove) {
+    if (safe) {
       delete map[segment];
       return false;
     } else {

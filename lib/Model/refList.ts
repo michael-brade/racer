@@ -1,7 +1,7 @@
 import util from '../util';
 import Model from './Model';
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   const root = model.root;
   root._refLists = new RefLists();
   for (const type in Model.MUTATOR_EVENTS) {
@@ -9,9 +9,9 @@ Model.INITS.push(model => {
   }
 });
 
-function addListener(model, type) {
+function addListener(model: Model, type: string) {
   model.on(type + 'Immediate', refListListener);
-  function refListListener(segments, eventArgs) {
+  function refListListener(segments: string[], eventArgs: any[]) {
     const pass = eventArgs[eventArgs.length - 1];
     // Check for updates on or underneath paths
     const fromMap = model._refLists.fromMap;
@@ -23,13 +23,7 @@ function addListener(model, type) {
   }
 }
 
-/**
- * @param {String} type
- * @param {Array} segments
- * @param {Array} eventArgs
- * @param {RefList} refList
- */
-function patchFromEvent(type, segments, eventArgs, refList) {
+function patchFromEvent(type: string, segments: string[], eventArgs: any[], refList: RefList): void {
   const fromLength = refList.fromSegments.length;
   const segmentsLength = segments.length;
   const pass = eventArgs[eventArgs.length - 1];
@@ -115,13 +109,7 @@ function patchFromEvent(type, segments, eventArgs, refList) {
   }
 }
 
-/**
- * @private
- * @param {Model} model
- * @param {RefList} refList
- * @param {Array} values
- */
-function setNewToValues(model, refList, values) {
+function setNewToValues(model: Model, refList: RefList, values: any[]): any[] {
   const ids = [];
   for (let i = 0; i < values.length; i++) {
     const value = values[i];
@@ -140,13 +128,13 @@ function setNewToValues(model, refList, values) {
   }
   return ids;
 }
-function updateIdForValue(model, refList, index, value) {
+function updateIdForValue(model: Model, refList: RefList, index, value): void {
   const id = refList.idByItem(value);
   const outSegments = refList.idsSegments.concat(index);
   model._set(outSegments, id);
 }
 
-function patchToEvent(type, segments, eventArgs, refList) {
+function patchToEvent(type: string, segments: string[], eventArgs: any[], refList: RefList): void {
   const toLength = refList.toSegments.length;
   const segmentsLength = segments.length;
   const pass = eventArgs[eventArgs.length - 1];
@@ -161,7 +149,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
         var indices = refList.indicesByItem(value);
         if (!indices) continue;
         for (var j = 0; j < indices.length; j++) {
-          var outSegments = refList.fromSegments.concat(indices[j]);
+          var outSegments = refList.fromSegments.concat(indices[j].toString());
           model._set(outSegments, value);
         }
       }
@@ -176,7 +164,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
         var indices = refList.indicesByItem(values[i]);
         if (!indices) continue;
         for (let j = 0, indicesLen = indices.length; j < indicesLen; j++) {
-          var outSegments = refList.fromSegments.concat(indices[j]);
+          var outSegments = refList.fromSegments.concat(indices[j].toString());
           model._set(outSegments, undefined);
         }
       }
@@ -206,7 +194,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
     const remaining = segments.slice(toLength + 1);
     for (var i = 0; i < indices.length; i++) {
       const index = indices[i];
-      var dereferenced = refList.fromSegments.concat(index, remaining);
+      var dereferenced = refList.fromSegments.concat(index.toString(), remaining);
       dereferenced = model._dereference(dereferenced, null, refList);
       eventArgs = eventArgs.slice();
       eventArgs[eventArgs.length - 1] = model._pass;
@@ -238,13 +226,13 @@ function patchToEvent(type, segments, eventArgs, refList) {
     if (oldIndices && !equivalentArrays(oldIndices, newIndices)) {
       // The changed item used to refer to some indices, but no longer does
       for (var i = 0; i < oldIndices.length; i++) {
-        var outSegments = refList.fromSegments.concat(oldIndices[i]);
+        var outSegments = refList.fromSegments.concat(oldIndices[i].toString());
         model._set(outSegments, undefined);
       }
     }
     if (newIndices) {
       for (var i = 0; i < newIndices.length; i++) {
-        var outSegments = refList.fromSegments.concat(newIndices[i]);
+        var outSegments = refList.fromSegments.concat(newIndices[i].toString());
         model._set(outSegments, value);
       }
     }
@@ -259,7 +247,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
     // Array mutations will have already been updated via an object
     // reference, so only re-emit
     for (var i = 0; i < indices.length; i++) {
-      var dereferenced = refList.fromSegments.concat(indices[i]);
+      var dereferenced = refList.fromSegments.concat(indices[i].toString());
       dereferenced = model._dereference(dereferenced, null, refList);
       eventArgs = eventArgs.slice();
       eventArgs[eventArgs.length - 1] = model._pass;
@@ -267,7 +255,7 @@ function patchToEvent(type, segments, eventArgs, refList) {
     }
   }
 }
-function equivalentArrays(a, b) {
+function equivalentArrays(a, b): boolean {
   if (!a || !b) return false;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
@@ -276,17 +264,19 @@ function equivalentArrays(a, b) {
   return true;
 }
 
-function patchIdsEvent(type, segments, eventArgs, refList) {
+function patchIdsEvent(type: string, segments: string[], eventArgs: any[], refList: RefList): void {
   const idsLength = refList.idsSegments.length;
   const segmentsLength = segments.length;
   const pass = eventArgs[eventArgs.length - 1];
   const model = refList.model.pass(pass, true);
 
+  var index;
+
   // An array mutation of the ids should be mirrored with a like change in
   // the output array
   if (segmentsLength === idsLength) {
     if (type === 'insert') {
-      var index = eventArgs[0];
+      index = eventArgs[0];
       const inserted = eventArgs[1];
       const values = [];
       for (let i = 0; i < inserted.length; i++) {
@@ -298,7 +288,7 @@ function patchIdsEvent(type, segments, eventArgs, refList) {
     }
 
     if (type === 'remove') {
-      var index = eventArgs[0];
+      index = eventArgs[0];
       var howMany = eventArgs[1].length;
       model._remove(refList.fromSegments, index, howMany);
       return;
@@ -324,7 +314,7 @@ function patchIdsEvent(type, segments, eventArgs, refList) {
   // Otherwise, direct mutation of a child in the `ids` object or mutation
   // underneath an item in the `ids` list. Update the item for the appropriate
   // id if it has changed
-  var index = segments[idsLength];
+  index = segments[idsLength];
   const id = refList.idByIndex(index);
   const item = refList.itemById(id);
   const itemSegments = refList.fromSegments.concat(index);
@@ -380,14 +370,14 @@ export class RefList {
   public ids: string;
 
   public fromSegments: string[];
-  private toSegments: string[];
-  private idsSegments: string[];
+  public toSegments: string[];
+  public idsSegments: string[];
 
   public options: {
     deleteRemoved: boolean
   };
 
-  private deleteRemoved: boolean;
+  public deleteRemoved: boolean;
 
 
   constructor(model: Model, from: string, to: string, ids: string, options?: { deleteRemoved: boolean }) {
@@ -426,7 +416,7 @@ export class RefList {
     return out;
   }
 
-  dereference(segments: string[], i) {
+  dereference(segments: string[], i: number): string[] {
     const remaining = segments.slice(i + 1);
     const key = this.idByIndex(remaining[0]);
     if (key == null) return [];
@@ -434,7 +424,7 @@ export class RefList {
     return this.toSegments.concat(remaining);
   }
 
-  toSegmentsByItem(item) {
+  toSegmentsByItem(item): string[] {
     const key = this.idByItem(item);
     if (key === undefined) return;
     return this.toSegments.concat(key);
@@ -448,11 +438,11 @@ export class RefList {
     }
   }
 
-  indicesByItem(item) {
+  indicesByItem(item): number[] {
     const id = this.idByItem(item);
     const ids = this.model._get(this.idsSegments);
     if (!ids) return;
-    let indices;
+    let indices: number[];
     let index = -1;
     for (; ; ) {
       index = ids.indexOf(id, index + 1);
@@ -474,7 +464,7 @@ export class RefList {
     return this.model._get(this.idsSegments.concat(index));
   }
 
-  onMutation(type, segments, eventArgs) {
+  onMutation(type: string, segments: string[], eventArgs: any[]): void {
     if (util.mayImpact(this.toSegments, segments)) {
       patchToEvent(type, segments, eventArgs, this);
     } else if (util.mayImpact(this.idsSegments, segments)) {

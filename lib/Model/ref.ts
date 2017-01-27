@@ -1,7 +1,7 @@
 import util from '../util';
 import Model from './Model';
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   const root = model.root;
   root._refs = new Refs();
   addIndexListeners(root);
@@ -18,28 +18,28 @@ Model.INITS.push(model => {
  *
  * model is the root model.
  */
-function addIndexListeners(model) {
-  model.on('insertImmediate', function refInsertIndex(segments, eventArgs) {
+function addIndexListeners(model: Model) {
+  model.on('insertImmediate', function refInsertIndex(segments: string[], eventArgs: any[]) {
     const index = eventArgs[0];
     const howMany = eventArgs[1].length;
-    function patchInsert(refIndex) {
+    function patchInsert(refIndex: number) {
       return (index <= refIndex) ? refIndex + howMany : refIndex;
     }
     onIndexChange(segments, patchInsert);
   });
-  model.on('removeImmediate', function refRemoveIndex(segments, eventArgs) {
+  model.on('removeImmediate', function refRemoveIndex(segments: string[], eventArgs: any[]) {
     const index = eventArgs[0];
     const howMany = eventArgs[1].length;
-    function patchRemove(refIndex) {
+    function patchRemove(refIndex: number) {
       return (index <= refIndex) ? refIndex - howMany : refIndex;
     }
     onIndexChange(segments, patchRemove);
   });
-  model.on('moveImmediate', function refMoveIndex(segments, eventArgs) {
+  model.on('moveImmediate', function refMoveIndex(segments: string[], eventArgs: any[]) {
     const from = eventArgs[0];
     const to = eventArgs[1];
     const howMany = eventArgs[2];
-    function patchMove(refIndex) {
+    function patchMove(refIndex: number) {
       // If the index was moved itself
       if (from <= refIndex && refIndex < from + howMany) {
         return refIndex + to - from;
@@ -52,7 +52,7 @@ function addIndexListeners(model) {
     }
     onIndexChange(segments, patchMove);
   });
-  function onIndexChange(segments, patch) {
+  function onIndexChange(segments: string[], patch: (refIndex: number) => number): void {
     const toPathMap = model._refs.toPathMap;
     const refs = toPathMap.get(segments) || [];
     console.log('onIndexChange - segments: ', segments, 'refs: ', refs);
@@ -73,7 +73,7 @@ function addIndexListeners(model) {
   }
 }
 
-function refChange(model, dereferenced, eventArgs, segments) {
+function refChange(model: Model, dereferenced, eventArgs: any[], segments: string[]) {
   const value = eventArgs[0];
   // Detect if we are deleting vs. setting to undefined
   if (value === undefined) {
@@ -111,9 +111,9 @@ function refMove(model, dereferenced, eventArgs) {
   model._move(dereferenced, from, to, howMany);
 }
 
-function addListener(model, type, fn) {
+function addListener(model: Model, type: string, fn): void {
   model.on(type + 'Immediate', refListener);
-  function refListener(segments, eventArgs) {
+  function refListener(segments: string[], eventArgs: any[]) {
     const pass = eventArgs[eventArgs.length - 1];
     // Find cases where an event is emitted on a path where a reference
     // is pointing. All original mutations happen on the fully dereferenced
@@ -291,7 +291,7 @@ export class Ref {
   public toSegments: string[];
   public parentTos: string[];
 
-  private updateIndices: boolean;
+  public updateIndices: boolean;
 
 
   constructor(model: Model, from: string, to: string, options?: { updateIndices: boolean }) {
@@ -310,15 +310,12 @@ export class Ref {
 }
 
 export class Refs {
-  private parentToPathMap: PathListMap;
-  private toPathMap: PathListMap;
-  public fromPathMap: PathMap;
 
-  constructor() {
-    this.parentToPathMap = new PathListMap();
-    this.toPathMap = new PathListMap();
-    this.fromPathMap = new PathMap();
-  }
+  constructor(
+    public parentToPathMap = new PathListMap(),
+    public toPathMap = new PathListMap(),
+    public fromPathMap = new PathMap()
+  ) {}
 
   add(ref: Ref) {
     this.fromPathMap.add(ref.fromSegments, ref);
@@ -473,7 +470,7 @@ class PathListMap {
     map[segment][Symbol.for('$items')].push(item);
   }
 
-  get(segments: string[], onlyAtLevel: boolean): Ref[] {
+  get(segments: string[], onlyAtLevel: boolean = false): Ref[] {
     let val = this.map;
 
     for (let i = 0, len = segments.length; i < len; i++) {

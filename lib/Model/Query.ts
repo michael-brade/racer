@@ -120,7 +120,7 @@ export class Queries {
     // Check if the collection still has any keys
     // eslint-disable-next-line no-unused-vars
     for (const key in collection) return;
-    delete this.collections[collection];        // TODO: BUG
+    delete this.collections[query.collectionName];
   }
 
   get(collectionName: string, expression, options): Query {

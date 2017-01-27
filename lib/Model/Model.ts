@@ -179,6 +179,28 @@ Model.INITS.push((model: Model) => {
 });
 
 
+Model.INITS.push((model: Model) => {
+  // refList
+  
+  const root = model.root;
+  root._refLists = new RefLists();
+  for (const type in Model.MUTATOR_EVENTS) {
+    addRefListListener(root, type);
+  }
+
+  // ref
+
+  root._refs = new Refs();
+  addIndexListeners(root);
+  addListener(root, 'change', refChange);
+  addListener(root, 'load', refLoad);
+  addListener(root, 'unload', refUnload);
+  addListener(root, 'insert', refInsert);
+  addListener(root, 'remove', refRemove);
+  addListener(root, 'move', refMove);
+});
+
+
 
 class Model extends EventEmitter {
   public static INITS = [];
@@ -708,6 +730,11 @@ class Model extends EventEmitter {
     }
   }
 
+
+  ///////////////////////
+  // fn
+  ///////////////////////
+
   fn(name: string, fns): void {
     this.root._namedFns[name] = fns;
   }
@@ -748,6 +775,10 @@ class Model extends EventEmitter {
     }
   }
 
+
+  ///////////////////////
+  // mutators
+  ///////////////////////
 
   _mutate(segments: string[], fn, cb) {
     cb = this.wrapCallback(cb);
@@ -1663,6 +1694,11 @@ class Model extends EventEmitter {
     }
   }
 
+
+  ///////////////////////
+  // ref
+  ///////////////////////
+
   _canRefTo(value): boolean {
     return this.isPath(value) || (value && typeof value.ref === 'function');
   }
@@ -1783,6 +1819,11 @@ class Model extends EventEmitter {
     return segments;
   }
 
+
+  ///////////////////////
+  // refList
+  ///////////////////////
+
   refList(from: string, to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
   refList(to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
   refList(): ChildModel {
@@ -1823,6 +1864,12 @@ class Model extends EventEmitter {
     this.root._refLists.add(refList);
     return this.scope(fromPath);
   }
+
+
+  ///////////////////////
+  // setDiff
+  ///////////////////////
+
 
   setDiff() {
     let subpath, value, cb;
@@ -1953,6 +2000,10 @@ class Model extends EventEmitter {
     }
     return this._mutate(segments, applyArrayDiff, cb);
   }
+
+  ///////////////////////
+  // subscriptions
+  ///////////////////////
 
   fetch() {
     this._forSubscribable(arguments, 'fetch');
@@ -2462,6 +2513,178 @@ function parseStartArguments(model: Model, args: any[], hasPath: boolean) {
     fns: fns,
     options: options
   };
+}
+
+
+// ** ref
+
+/* This adds listeners to the {insert,move,remove}Immediate events.
+ *
+ * model is the root model.
+ */
+function addIndexListeners(model: Model) {
+  model.on('insertImmediate', function refInsertIndex(segments: string[], eventArgs: any[]) {
+    const index = eventArgs[0];
+    const howMany = eventArgs[1].length;
+    function patchInsert(refIndex: number) {
+      return (index <= refIndex) ? refIndex + howMany : refIndex;
+    }
+    onIndexChange(segments, patchInsert);
+  });
+  model.on('removeImmediate', function refRemoveIndex(segments: string[], eventArgs: any[]) {
+    const index = eventArgs[0];
+    const howMany = eventArgs[1].length;
+    function patchRemove(refIndex: number) {
+      return (index <= refIndex) ? refIndex - howMany : refIndex;
+    }
+    onIndexChange(segments, patchRemove);
+  });
+  model.on('moveImmediate', function refMoveIndex(segments: string[], eventArgs: any[]) {
+    const from = eventArgs[0];
+    const to = eventArgs[1];
+    const howMany = eventArgs[2];
+    function patchMove(refIndex: number) {
+      // If the index was moved itself
+      if (from <= refIndex && refIndex < from + howMany) {
+        return refIndex + to - from;
+      }
+      // Remove part of a move
+      if (from <= refIndex) refIndex -= howMany;
+      // Insert part of a move
+      if (to <= refIndex) refIndex += howMany;
+      return refIndex;
+    }
+    onIndexChange(segments, patchMove);
+  });
+  function onIndexChange(segments: string[], patch: (refIndex: number) => number): void {
+    const toPathMap = model._refs.toPathMap;
+    const refs = toPathMap.get(segments) || [];
+    console.log('onIndexChange - segments: ', segments, 'refs: ', refs);
+
+    for (let i = 0, len = refs.length; i < len; i++) {
+      const ref = refs[i];
+      const from = ref.from;
+      if (!(ref.updateIndices &&
+        ref.toSegments.length > segments.length)) continue;
+      const index = +ref.toSegments[segments.length];
+      const patched = patch(index);
+      if (index === patched) continue;
+      model._refs.remove(from);
+      ref.toSegments[segments.length] = '' + patched;
+      ref.to = ref.toSegments.join('.');
+      model._refs.add(ref);
+    }
+  }
+}
+
+function refChange(model: Model, dereferenced, eventArgs: any[], segments: string[]) {
+  const value = eventArgs[0];
+  // Detect if we are deleting vs. setting to undefined
+  if (value === undefined) {
+    const parentSegments = segments.slice();
+    const last = parentSegments.pop();
+    const parent = model._get(parentSegments);
+    if (!parent || !(last in parent)) {
+      model._del(dereferenced);
+      return;
+    }
+  }
+  model._set(dereferenced, value);
+}
+function refLoad(model, dereferenced, eventArgs) {
+  const value = eventArgs[0];
+  model._set(dereferenced, value);
+}
+function refUnload(model, dereferenced) {
+  model._del(dereferenced);
+}
+function refInsert(model, dereferenced, eventArgs) {
+  const index = eventArgs[0];
+  const values = eventArgs[1];
+  model._insert(dereferenced, index, values);
+}
+function refRemove(model, dereferenced, eventArgs) {
+  const index = eventArgs[0];
+  const howMany = eventArgs[1].length;
+  model._remove(dereferenced, index, howMany);
+}
+function refMove(model, dereferenced, eventArgs) {
+  const from = eventArgs[0];
+  const to = eventArgs[1];
+  const howMany = eventArgs[2];
+  model._move(dereferenced, from, to, howMany);
+}
+
+function addListener(model: Model, type: string, fn): void {
+  model.on(type + 'Immediate', refListener);
+  function refListener(segments: string[], eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    // Find cases where an event is emitted on a path where a reference
+    // is pointing. All original mutations happen on the fully dereferenced
+    // location, so this detection only needs to happen in one direction
+    const toPathMap = model._refs.toPathMap;
+    let subpath;
+    for (let i = 0, len = segments.length; i < len; i++) {
+      subpath = (subpath) ? subpath + '.' + segments[i] : segments[i];
+      // If a ref is found pointing to a matching subpath, re-emit on the
+      // place where the reference is coming from as if the mutation also
+      // occured at that path
+      var refs = toPathMap.get(subpath.split('.'), true);
+      if (!refs.length) continue;
+      const remaining = segments.slice(i + 1);
+      for (var refIndex = 0, numRefs = refs.length; refIndex < numRefs; refIndex++) {
+        var ref = refs[refIndex];
+        const dereferenced = ref.fromSegments.concat(remaining);
+        // The value may already be up to date via object reference. If so,
+        // simply re-emit the event. Otherwise, perform the same mutation on
+        // the ref's path
+        if (model._get(dereferenced) === model._get(segments)) {
+          model.emit(type, dereferenced, eventArgs);
+        } else {
+          var setterModel = ref.model.pass(pass, true);
+          setterModel._dereference = noopDereference;
+          fn(setterModel, dereferenced, eventArgs, segments);
+        }
+      }
+    }
+    // If a ref points to a child of a matching subpath, get the value in
+    // case it has changed and set if different
+    const parentToPathMap = model._refs.parentToPathMap;
+    var refs = parentToPathMap.get(subpath.split('.'), true);
+    if (!refs.length) return;
+    for (var refIndex = 0, numRefs = refs.length; refIndex < numRefs; refIndex++) {
+      var ref = refs[refIndex];
+      const value = model._get(ref.toSegments);
+      const previous = model._get(ref.fromSegments);
+      if (previous !== value) {
+        var setterModel = ref.model.pass(pass, true);
+        setterModel._dereference = noopDereference;
+        setterModel._set(ref.fromSegments, value);
+      }
+    }
+  }
+}
+
+function noopDereference(segments) {
+  return segments;
+}
+
+
+
+// ** refList
+
+function addRefListListener(model: Model, type: string) {
+  model.on(type + 'Immediate', refListListener);
+  function refListListener(segments: string[], eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    // Check for updates on or underneath paths
+    const fromMap = model._refLists.fromMap;
+    for (const from in fromMap) {
+      const refList = fromMap[from];
+      if (pass.$refList === refList) continue;
+      refList.onMutation(type, segments, eventArgs);
+    }
+  }
 }
 
 

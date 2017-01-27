@@ -1,15 +1,19 @@
 import { EventEmitter } from 'events';
-import uuid from 'uuid';
+import uuid             from 'uuid';
+import arrayDiff        from 'arraydiff';
+import { Connection, defaultType }  from 'sharedb/lib/client';
 
+import CollectionCounter            from './CollectionCounter';
 import { Collection, CollectionMap, ModelData } from './collections';
-import { Contexts } from './contexts';
-import Doc from './Doc';
-import LocalDoc from './LocalDoc';
-import { Filters } from './filter';
-import { Fns, NamedFns } from './fn';
-import Query, { Queries } from './Query';
-import { Refs } from './ref';
-import { RefLists } from './refList';
+import { Contexts, Context }        from './contexts';
+import { Doc }                  from './Doc';
+import LocalDoc                 from './LocalDoc';
+import RemoteDoc                from './RemoteDoc';
+import { Filter, Filters }      from './filter';
+import { Fns, NamedFns }        from './fn';
+import Query, { Queries }       from './Query';
+import { Refs, Ref }            from './ref';
+import { RefLists, RefList }    from './refList';
 
 import util from '../util';
 
@@ -32,10 +36,27 @@ interface Model {
 
   // bundle
   bundleTimeout: number;
+  _commit: Function;
 
   // collections
   collections: CollectionMap;
   data: ModelData;
+
+  // connection
+  connection;
+  socket;
+  _createSocket(bundle): any;  // Model::_createSocket should be defined by the socket plugin
+
+  // contexts
+  _contexts: Contexts;
+  _context: Context;
+
+  // events
+  _mutatorEventQueue: [string, string[], any[]][];
+  _pass: typeof Passed;
+  _silent: boolean;
+  _eventContext: any;       // seems like this can really be anything
+  _defaultCallback: (err?) => void;
 
   // filter
   _filters: Filters;
@@ -43,6 +64,9 @@ interface Model {
   // fn
   _namedFns: NamedFns;
   _fns: Fns;
+
+  // paths
+  _at: string;  // this is a path
 
   // Query
   _queries: Queries;
@@ -53,16 +77,20 @@ interface Model {
   // refList
   _refLists: RefLists;
 
+  // subscriptions
+  fetchOnly: boolean;
+  unloadDelay: number;
+
+  // Track the total number of active fetches per doc
+  _fetchedDocs: CollectionCounter;
+  // Track the total number of active susbscribes per doc
+  _subscribedDocs: CollectionCounter;
+
+
   _events;
   _maxListeners;
 
-  _contexts: Contexts;
-  _context;
-  _at;
-  _pass;
-  _silent;
-  _eventContext;
-  _preventCompose;
+  _preventCompose: boolean;
 }
 
 // bundle.js
@@ -76,18 +104,101 @@ Model.INITS.push((model: Model) => {
   model.root.data = new ModelData();
 });
 
+// connection
+Model.INITS.push((model: Model) => {
+  model.root._preventCompose = false;
+});
+
 // contexts
 Model.INITS.push((model: Model) => {
   model.root._contexts = new Contexts();
   model.root.setContext('root');
 });
 
+// events
+Model.INITS.push((model: Model) => {
+  EventEmitter.call(this);
+
+  // Set max listeners to unlimited
+  model.setMaxListeners(0);
+
+  // Used in async methods to emit an error event if a callback is not supplied.
+  // This will throw if there is no handler for model.on('error')
+  model.root._defaultCallback = defaultCallback;
+  function defaultCallback(err) {
+    if (err) model._emitError(err);
+  }
+
+  model.root._mutatorEventQueue = null;
+  model.root._pass = new Passed({}, {});
+  model.root._silent = null;
+  model.root._eventContext = null;
+});
+
+// filter
+Model.INITS.push((model: Model) => {
+  model.root._filters = new Filters(model);
+  model.on('all', filterListener);
+  function filterListener(segments, eventArgs) {
+    const pass = eventArgs[eventArgs.length - 1];
+    const map = model.root._filters.fromMap;
+    for (const path in map) {
+      const filter = map[path];
+      if (pass.$filter === filter) continue;
+      if (
+        util.mayImpact(filter.segments, segments) ||
+        (filter.inputsSegments && util.mayImpactAny(filter.inputsSegments, segments))
+      ) {
+        filter.update(pass);
+      }
+    }
+  }
+});
+
+// fn
+
+Model.INITS.push((model: Model) => {
+  model.root._namedFns = new NamedFns();
+  model.root._fns = new Fns(model);
+  model.on('all', fnListener);
+  function fnListener(segments: string, eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    const map = model.root._fns.fromMap;
+    for (const path in map) {
+      const fn = map[path];
+      if (pass.$fn === fn) continue;
+      if (util.mayImpactAny(fn.inputsSegments, segments)) {
+        // Mutation affecting input path
+        fn.onInput(pass);
+      } else if (util.mayImpact(fn.fromSegments, segments)) {
+        // Mutation affecting output path
+        fn.onOutput(pass);
+      }
+    }
+  }
+});
+
+
 
 class Model extends EventEmitter {
   public static INITS = [];
   public static ChildModel = ChildModel;
 
+  // bundle
   public static BUNDLE_TIMEOUT = 10 * 1000;
+
+  // events
+  // These events are re-emitted as 'all' events, and they are queued up and
+  // emitted in sequence, so that events generated by other events are not
+  // seen in a different order by later listeners
+  public static MUTATOR_EVENTS = {
+    change: true,
+    insert: true,
+    remove: true,
+    move: true,
+    load: true,
+    unload: true
+  };
 
 
   constructor(options: Options = {}) {
@@ -110,9 +221,9 @@ class Model extends EventEmitter {
   }
 
 
-  // ***************
-  // bundle.js
-  // ***************
+  ///////////////////////
+  // bundle
+  ///////////////////////
 
   bundle(cb) {
     const root = this.root;
@@ -133,7 +244,8 @@ class Model extends EventEmitter {
         refLists: root._refLists.toJSON(),
         fns: root._fns.toJSON(),
         filters: root._filters.toJSON(),
-        nodeEnv: process.env.NODE_ENV
+        nodeEnv: process.env.NODE_ENV,
+        collections: undefined
       };
       stripComputed(root);
       bundle.collections = serializeCollections(root);
@@ -143,40 +255,45 @@ class Model extends EventEmitter {
     });
   }
 
+
+  ///////////////////////
+  // collections
+  ///////////////////////  
+
   getCollection(collectionName: string) {
     return this.root.collections[collectionName];
   }
 
-  getDoc(collectionName: string, id) {
+  getDoc(collectionName: string, id): Doc {
     const collection = this.root.collections[collectionName];
     return collection && collection.docs[id];
   }
 
-  get(subpath) {
+  get(subpath: string) {
     const segments = this._splitPath(subpath);
     return this._get(segments);
   }
 
-  _get(segments) {
+  _get(segments: string[]) {
     return util.lookup(segments, this.root.data);
   }
 
-  getCopy(subpath) {
+  getCopy(subpath: string) {
     const segments = this._splitPath(subpath);
     return this._getCopy(segments);
   }
 
-  _getCopy(segments) {
+  _getCopy(segments: string[]) {
     const value = this._get(segments);
     return util.copy(value);
   }
 
-  getDeepCopy(subpath) {
+  getDeepCopy(subpath: string) {
     const segments = this._splitPath(subpath);
     return this._getDeepCopy(segments);
   }
 
-  _getDeepCopy(segments) {
+  _getDeepCopy(segments: string[]) {
     const value = this._get(segments);
     return util.deepCopy(value);
   }
@@ -190,7 +307,7 @@ class Model extends EventEmitter {
     return collection;
   }
 
-  _getDocConstructor(): Doc {
+  _getDocConstructor(): { new(model: Model, collectionName: string, id: string, data): Doc; } {
     // Only create local documents. This is overriden in ./connection.js, so that
    // the RemoteDoc behavior can be selectively included
     return LocalDoc;
@@ -204,7 +321,7 @@ class Model extends EventEmitter {
    * @param {String} id
    * @param {Object} [data] data to create if doc with id does not exist in collection
    */
-  getOrCreateDoc(collectionName: string, id: string, data) {
+  getOrCreateDoc(collectionName: string, id: string, data?): Doc {
     const collection = this.getOrCreateCollection(collectionName);
     return collection.docs[id] || collection.add(id, data);
   }
@@ -212,7 +329,7 @@ class Model extends EventEmitter {
   /**
    * @param {String} subpath
    */
-  destroy(subpath) {
+  destroy(subpath: string): void {
     const segments = this._splitPath(subpath);
     // Silently remove all types of listeners within subpath
     const silentModel = this.silent();
@@ -237,19 +354,23 @@ class Model extends EventEmitter {
     }
   }
 
-  preventCompose() {
+  ///////////////////////
+  // connection
+  ///////////////////////
+
+  preventCompose(): ChildModel {
     const model = this._child();
     model._preventCompose = true;
     return model;
   }
 
-  allowCompose() {
+  allowCompose(): ChildModel {
     const model = this._child();
     model._preventCompose = false;
     return model;
   }
 
-  createConnection(bundle) {
+  createConnection(bundle): void {
     // Model::_createSocket should be defined by the socket plugin
     this.root.socket = this._createSocket(bundle);
 
@@ -266,7 +387,7 @@ class Model extends EventEmitter {
     this._finishCreateConnection();
   }
 
-  _finishCreateConnection() {
+  _finishCreateConnection(): void {
     const model = this;
     this.root.connection.on('error', err => {
       model._emitError(err);
@@ -278,21 +399,21 @@ class Model extends EventEmitter {
     });
   }
 
-  connect() {
+  connect(): void {
     this.root.socket.open();
   }
 
-  disconnect() {
+  disconnect(): void {
     this.root.socket.close();
   }
 
-  reconnect() {
+  reconnect(): void {
     this.disconnect();
     this.connect();
   }
 
   // Clean delayed disconnect
-  close(cb) {
+  close(cb): void {
     cb = this.wrapCallback(cb);
     const model = this;
     this.whenNothingPending(() => {
@@ -309,7 +430,7 @@ class Model extends EventEmitter {
     return this.root.connection.agent;
   }
 
-  _isLocal(name) {
+  _isLocal(name: string): boolean {
     // Whether the collection is local or remote is determined by its name.
     // Collections starting with an underscore ('_') are for user-defined local
     // collections, those starting with a dollar sign ('$'') are for
@@ -318,15 +439,15 @@ class Model extends EventEmitter {
     return firstCharcter === '_' || firstCharcter === '$';
   }
 
-  _getDocConstructor(name) {
+  _getDocConstructor(name: string): { new(model: Model, collectionName: string, id: string, data, collection): Doc } {
     return (this._isLocal(name)) ? LocalDoc : RemoteDoc;
   }
 
-  hasPending() {
+  hasPending(): boolean {
     return this.root.connection.hasPending();
   }
 
-  hasWritePending() {
+  hasWritePending(): boolean {
     return this.root.connection.hasWritePending();
   }
 
@@ -334,48 +455,40 @@ class Model extends EventEmitter {
     return this.root.connection.whenNothingPending(cb);
   }
 
-  createConnection(backend, req) {
-    this.root.backend = backend;
-    this.root.req = req;
-    this.root.connection = backend.connect(null, req);
-    this.root.socket = this.root.connection.socket;
-    // Pretend like we are always connected on the server for rendering purposes
-    this._set(['$connection', 'state'], 'connected');
-    this._finishCreateConnection();
-  }
 
-  connect() {
-    this.root.backend.connect(this.root.connection, this.root.req);
-    this.root.socket = this.root.connection.socket;
-  }
+  // ** contexts
 
-  context(id) {
+  context(id: string): ChildModel {
     const model = this._child();
     model.setContext(id);
     return model;
   }
 
-  setContext(id) {
+  setContext(id: string): void {
     this._context = this.getOrCreateContext(id);
   }
 
-  getOrCreateContext(id) {
+  getOrCreateContext(id: string): Context {
     const context = this.root._contexts[id] ||
       (this.root._contexts[id] = new Context(this, id));
     return context;
   }
 
-  unload(id) {
+  unload(id?: string): void {
     const context = (id) ? this.root._contexts[id] : this._context;
     context && context.unload();
   }
 
-  unloadAll() {
+  unloadAll(): void {
     const contexts = this.root._contexts;
     for (const key in contexts) {
       contexts[key].unload();
     }
   }
+
+  ///////////////////////
+  // events
+  ///////////////////////
 
   wrapCallback(cb) {
     if (!cb) return this.root._defaultCallback;
@@ -389,10 +502,9 @@ class Model extends EventEmitter {
     };
   }
 
-  _emitError(err, context?) {
+  _emitError(err, context?): void {
     let message = (err.message) ? err.message :
-      (typeof err === 'string') ? err :
-      'Unknown model error';
+      (typeof err === 'string') ? err : 'Unknown model error';
     if (context) {
       message += ' ' + context;
     }
@@ -409,47 +521,62 @@ class Model extends EventEmitter {
     this.emit('error', err);
   }
 
-  emit(type) {
+  emit(type: string, ...args: any[]) {
     if (type === 'error') {
-      return this._emit.apply(this, arguments);
+      return super.emit(type, args);
     }
     if (Model.MUTATOR_EVENTS[type]) {
       if (this._silent) return this;
-      let segments = arguments[1];
-      let eventArgs = arguments[2];
-      this._emit(type + 'Immediate', segments, eventArgs);
+      let segments = args[0];
+      let eventArgs = args[1];
+      super.emit(type + 'Immediate', segments, eventArgs);
       if (this.root._mutatorEventQueue) {
         this.root._mutatorEventQueue.push([type, segments, eventArgs]);
         return this;
       }
       this.root._mutatorEventQueue = [];
-      this._emit(type, segments, eventArgs);
-      this._emit('all', segments, [type].concat(eventArgs));
+      super.emit(type, segments, eventArgs);
+      super.emit('all', segments, [type].concat(eventArgs));
       while (this.root._mutatorEventQueue.length) {
         const queued = this.root._mutatorEventQueue.shift();
         type = queued[0];
         segments = queued[1];
         eventArgs = queued[2];
-        this._emit(type, segments, eventArgs);
-        this._emit('all', segments, [type].concat(eventArgs));
+        super.emit(type, segments, eventArgs);
+        super.emit('all', segments, [type].concat(eventArgs));
       }
       this.root._mutatorEventQueue = null;
       return this;
     }
-    return this._emit.apply(this, arguments);
+    return super.emit.apply(this, arguments);
   }
 
-  once(type, pattern, cb) {
+  addListener(type: string | symbol, listener: Function): this; // EventEmitter;
+  addListener(type: string | symbol, pattern, cb?): any {
+    const listener = eventListener(this, pattern, cb);
+    super.on(type, listener);
+    return listener;
+  }
+
+  on(type: string | symbol, listener: Function): this; // EventEmitter;
+  on(type: string | symbol, pattern, cb?): any {
+    const listener = eventListener(this, pattern, cb);
+    super.on(type, listener);
+    return listener;
+  }
+
+  once(type: string | symbol, listener: Function): this; // EventEmitter;
+  once(type: string | symbol, pattern, cb?): any /*: () => void */ {        // force any for compatibility
     const listener = eventListener(this, pattern, cb);
     function g() {
       const matches = listener.apply(null, arguments);
       if (matches) this.removeListener(type, g);
     }
-    this._on(type, g);
+    super.on(type, g);
     return g;
   }
 
-  removeAllListeners(type, subpattern) {
+  removeAllListeners(type?: string | symbol, subpattern?: string): this {   // EventEmitter
     // If a pattern is specified without an event type, remove all model event
     // listeners under that pattern for all events
     if (!type) {
@@ -463,9 +590,9 @@ class Model extends EventEmitter {
     // If no pattern is specified, remove all listeners like normal
     if (!pattern) {
       if (arguments.length === 0) {
-        return this._removeAllListeners();
+        return super.removeAllListeners();
       }
-      return this._removeAllListeners(type);
+      return super.removeAllListeners(type);
     }
 
     // Remove all listeners for an event under a pattern
@@ -496,25 +623,25 @@ class Model extends EventEmitter {
    * @param {Boolean|Null} value defaults to true
    * @return {Model}
    */
-  silent(value) {
+  silent(value: boolean | null = true): ChildModel {
     const model = this._child();
-    model._silent = (value == null) ? true : value;
+    model._silent = value;
     return model;
   }
 
-  eventContext(value) {
+  eventContext(value): ChildModel {
     const model = this._child();
     model._eventContext = value;
     return model;
   }
 
-  removeContextListeners(value) {
+  removeContextListeners(value): Model {
     if (arguments.length === 0) {
       value = this._eventContext;
     }
     // Remove all events created within a given context
     for (const type in this._events) {
-      const listeners = this.listeners(type);
+      const listeners: any[] = this.listeners(type);
       // Make sure to iterate in reverse, since the array might be
       // mutated as listeners are removed
       for (let i = listeners.length; i--; ) {
@@ -527,7 +654,17 @@ class Model extends EventEmitter {
     return this;
   }
 
-  filter() {
+  ///////////////////////
+  // filter
+  ///////////////////////
+
+  filter(path: string, fn: Function): Filter;
+  filter(path: string, options: Object, fn: Function): Filter;
+  filter(path: string, inputPath1: string, fn: Function): Filter;
+  filter(path: string, inputPath1: string, options: Object, fn: Function): Filter;
+  filter(path: string, inputPath1: string, inputPath2: string, fn: Function): Filter;
+  filter(path: string, inputPath1: string, inputPath2: string, options: Object, fn: Function): Filter;
+  filter(): Filter {
     const args = Array.prototype.slice.call(arguments);
     const parsed = parseFilterArguments(this, args);
     return this.root._filters.add(
@@ -539,7 +676,13 @@ class Model extends EventEmitter {
     );
   }
 
-  sort() {
+  sort(path: string, fn: Function): Filter;
+  sort(path: string, options: Object, fn: Function): Filter;
+  sort(path: string, inputPath1: string, fn: Function): Filter;
+  sort(path: string, inputPath1: string, options: Object, fn: Function): Filter;
+  sort(path: string, inputPath1: string, inputPath2: string, fn: Function): Filter;
+  sort(path: string, inputPath1: string, inputPath2: string, options: Object, fn: Function): Filter;
+  sort(): Filter {
     const args = Array.prototype.slice.call(arguments);
     const parsed = parseFilterArguments(this, args);
     return this.root._filters.add(
@@ -551,12 +694,12 @@ class Model extends EventEmitter {
     );
   }
 
-  removeAllFilters(subpath) {
+  removeAllFilters(subpath?: string): void {
     const segments = this._splitPath(subpath);
     this._removeAllFilters(segments);
   }
 
-  _removeAllFilters(segments) {
+  _removeAllFilters(segments: string[]): void {
     const filters = this.root._filters.fromMap;
     for (const from in filters) {
       if (util.contains(segments, filters[from].fromSegments)) {
@@ -581,7 +724,7 @@ class Model extends EventEmitter {
     return this.root._fns.start(parsed.name, parsed.path, parsed.inputPaths, parsed.fns, parsed.options);
   }
 
-  stop(subpath): void {
+  stop(subpath: string | number): void {
     const path = this.path(subpath);
     this._stop(path);
   }
@@ -590,7 +733,7 @@ class Model extends EventEmitter {
     this.root._fns.stop(fromPath);
   }
 
-  stopAll(subpath): void {
+  stopAll(subpath: string | number): void {
     const segments = this._splitPath(subpath);
     this._stopAll(segments);
   }
@@ -643,10 +786,10 @@ class Model extends EventEmitter {
     return this._set(segments, value, cb);
   }
 
-  _set(segments: string[], value, cb?) {
+  _set(segments: string[], value, cb?: Function) {
     segments = this._dereference(segments);
     const model = this;
-    function set(doc, docSegments, fnCb) {
+    function set(doc: Doc, docSegments: string[], fnCb: Function) {
       const previous = doc.set(docSegments, value, fnCb);
       // On setting the entire doc, remote docs sometimes do a copy to add the
       // id without it being stored in the database by ShareJS
@@ -676,7 +819,7 @@ class Model extends EventEmitter {
   _setNull(segments: string[], value, cb) {
     segments = this._dereference(segments);
     const model = this;
-    function setNull(doc, docSegments, fnCb) {
+    function setNull(doc: Doc, docSegments: string[], fnCb: Function) {
       const previous = doc.get(docSegments);
       if (previous != null) {
         fnCb();
@@ -825,8 +968,7 @@ class Model extends EventEmitter {
     return this._add(segments, value, cb);
   }
 
-  // TODO: need type object with an id (nullable)
-  _add(segments: string[], value: Object, cb) {
+  _add(segments: string[], value: any, cb) {
     if (typeof value !== 'object') {
       const message = 'add requires an object value. Invalid value: ' + value;
       cb = this.wrapCallback(cb);
@@ -917,7 +1059,7 @@ class Model extends EventEmitter {
     return this._increment(segments, byNumber, cb);
   }
 
-  _increment(segments: string[], byNumber, cb) {
+  _increment(segments: string[], byNumber: number, cb) {
     segments = this._dereference(segments);
     if (byNumber == null) byNumber = 1;
     const model = this;
@@ -1007,7 +1149,7 @@ class Model extends EventEmitter {
     return this._insert(segments, +index, values, cb);
   }
 
-  _insert(segments: string[], index, values, cb) {
+  _insert(segments: string[], index: number, values, cb?) {
     const forArrayMutator = true;
     segments = this._dereference(segments, forArrayMutator);
     const model = this;
@@ -1136,7 +1278,7 @@ class Model extends EventEmitter {
     return this._remove(segments, +index, howMany, cb);
   }
 
-  _remove(segments: string[], index, howMany, cb) {
+  _remove(segments: string[], index: number, howMany: number, cb?) {
     const forArrayMutator = true;
     segments = this._dereference(segments, forArrayMutator);
     if (howMany == null) howMany = 1;
@@ -1199,12 +1341,12 @@ class Model extends EventEmitter {
     return this._move(segments, from, to, howMany, cb);
   }
 
-  _move(segments: string[], from, to, howMany, cb) {
+  _move(segments: string[], from: number, to: number, howMany: number, cb?: Function) {
     const forArrayMutator = true;
     segments = this._dereference(segments, forArrayMutator);
     if (howMany == null) howMany = 1;
     const model = this;
-    function move(doc, docSegments, fnCb) {
+    function move(doc: Doc, docSegments: string[], fnCb: Function) {
       // Cast to numbers
       from = +from;
       to = +to;
@@ -1328,7 +1470,7 @@ class Model extends EventEmitter {
     return this._subtypeSubmit(segments, subtype, subtypeOp, cb);
   }
 
-  _subtypeSubmit(segments, subtype, subtypeOp, cb) {
+  _subtypeSubmit(segments: string[], subtype, subtypeOp, cb) {
     segments = this._dereference(segments);
     const model = this;
     function subtypeSubmit(doc, docSegments, fnCb) {
@@ -1346,7 +1488,14 @@ class Model extends EventEmitter {
     return this._mutate(segments, subtypeSubmit, cb);
   }
 
-  _splitPath(subpath) {
+
+  ///////////////////////
+  // paths
+  ///////////////////////
+
+
+  // TODO: could also be an object with path() function
+  _splitPath(subpath?: string | number): string[] {
     const path = this.path(subpath);
     return (path && path.split('.')) || [];
   }
@@ -1359,7 +1508,7 @@ class Model extends EventEmitter {
    * @return {String} absolute path
    * @api public
    */
-  path(subpath: string | number): string {
+  path(subpath?: string | number | { path: () => string }): string {
     if (subpath == null || subpath === '') return (this._at) ? this._at : '';
     if (typeof subpath === 'string' || typeof subpath === 'number') {
       return (this._at) ? this._at + '.' + subpath : '' + subpath;
@@ -1367,11 +1516,11 @@ class Model extends EventEmitter {
     if (typeof subpath.path === 'function') return subpath.path();
   }
 
-  isPath(subpath): boolean {
+  isPath(subpath: string | number | { path: () => string }): boolean {
     return this.path(subpath) != null;
   }
 
-  scope(path): ChildModel {
+  scope(path: string): ChildModel {
     const model = this._child();
     model._at = path;
     return model;
@@ -1390,7 +1539,7 @@ class Model extends EventEmitter {
    *  @return {Model} a scoped model
    *  @api public
    */
-  at(subpath) {
+  at(subpath: string | number | { path: () => string }): ChildModel {
     const path = this.path(subpath);
     return this.scope(path);
   }
@@ -1403,7 +1552,7 @@ class Model extends EventEmitter {
    * @optional @param {Number} levels
    * @return {Model} a scoped model
    */
-  parent(levels) {
+  parent(levels: number): ChildModel {
     if (levels == null) levels = 1;
     const segments = this._splitPath();
     const len = Math.max(0, segments.length - levels);
@@ -1417,11 +1566,16 @@ class Model extends EventEmitter {
    * @optional @param {String} path
    * @return {String}
    */
-  leaf(path) {
+  leaf(path: string): string {
     if (!path) path = this.path();
     const i = path.lastIndexOf('.');
     return path.slice(i + 1);
   }
+
+
+  ///////////////////////
+  // Query
+  ///////////////////////
 
   query(collectionName: string, expression, options): Query {
     expression = this.sanitizeQuery(expression);
@@ -1509,11 +1663,13 @@ class Model extends EventEmitter {
     }
   }
 
-  _canRefTo(value) {
+  _canRefTo(value): boolean {
     return this.isPath(value) || (value && typeof value.ref === 'function');
   }
 
-  ref() {
+  ref(to: string, options?: { updateIndices: boolean }): ChildModel;
+  ref(from: string, to: string | Query | Filter, options?: { updateIndices: boolean }): ChildModel;
+  ref(): ChildModel {
     let from, to, options;
     if (arguments.length === 1) {
       to = arguments[0];
@@ -1547,19 +1703,19 @@ class Model extends EventEmitter {
     return this.scope(fromPath);
   }
 
-  removeRef(subpath) {
+  removeRef(subpath: string|number): void {
     const segments = this._splitPath(subpath);
     const fromPath = segments.join('.');
     this._removeRef(segments, fromPath);
   }
 
-  _removeRef(segments, fromPath) {
+  _removeRef(segments: string[], fromPath: string): void {
     this.root._refs.remove(fromPath);
     this.root._refLists.remove(fromPath);
     this._del(segments);
   }
 
-  removeAllRefs(subpath): void {
+  removeAllRefs(subpath: string | number): void {
     const segments = this._splitPath(subpath);
     this._removeAllRefs(segments);
   }
@@ -1627,7 +1783,9 @@ class Model extends EventEmitter {
     return segments;
   }
 
-  refList() {
+  refList(from: string, to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
+  refList(to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
+  refList(): ChildModel {
     let from, to, ids, options;
     if (arguments.length === 2) {
       to = arguments[0];
@@ -1755,11 +1913,11 @@ class Model extends EventEmitter {
     return this._setArrayDiffDeep(segments, value, cb);
   }
 
-  _setArrayDiffDeep(segments, value, cb?) {
+  _setArrayDiffDeep(segments: string[], value, cb?) {
     return this._setArrayDiff(segments, value, cb, util.deepEqual);
   }
 
-  _setArrayDiff(segments, value, cb?, _equalFn) {
+  _setArrayDiff(segments: string[], value, cb?, _equalFn?) {
     const before = this._get(segments);
     if (before === value) return this.wrapCallback(cb)();
     if (!Array.isArray(before) || !Array.isArray(value)) {
@@ -1860,7 +2018,7 @@ class Model extends EventEmitter {
     process.nextTick(finished);
   }
 
-  fetchDoc(collectionName, id, cb) {
+  fetchDoc(collectionName: string, id: string, cb?) {
     cb = this.wrapCallback(cb);
 
     // Maintain a count of fetches so that we can unload the document
@@ -1873,7 +2031,7 @@ class Model extends EventEmitter {
     doc.shareDoc.fetch(cb);
   }
 
-  subscribeDoc(collectionName, id, cb) {
+  subscribeDoc(collectionName: string, id: string, cb?) {
     cb = this.wrapCallback(cb);
 
     // Maintain a count of subscribes so that we can unload the document
@@ -1894,7 +2052,7 @@ class Model extends EventEmitter {
     }
   }
 
-  unfetchDoc(collectionName, id, cb) {
+  unfetchDoc(collectionName: string, id: string, cb?) {
     cb = this.wrapCallback(cb);
     this._context.unfetchDoc(collectionName, id);
 
@@ -1915,7 +2073,7 @@ class Model extends EventEmitter {
     }
   }
 
-  unsubscribeDoc(collectionName, id, cb) {
+  unsubscribeDoc(collectionName: string, id: string, cb?) {
     cb = this.wrapCallback(cb);
     this._context.unsubscribeDoc(collectionName, id);
 
@@ -1944,7 +2102,7 @@ class Model extends EventEmitter {
         shareDoc.unsubscribe(unsubscribeDocCallback);
       }
     }
-    function unsubscribeDocCallback(err) {
+    function unsubscribeDocCallback(err?) {
       model._maybeUnloadDoc(collectionName, id);
       if (err) return cb(err);
       cb(null, 0);
@@ -1953,7 +2111,7 @@ class Model extends EventEmitter {
 
   // Removes the document from the local model if the model no longer has any
   // remaining fetches or subscribes via a query or direct loading
-  _maybeUnloadDoc(collectionName, id) {
+  _maybeUnloadDoc(collectionName: string, id: string) {
     const doc = this.getDoc(collectionName, id);
     if (!doc) return;
 
@@ -1969,7 +2127,7 @@ class Model extends EventEmitter {
     this.emit('unload', [collectionName, id], [previous, this._pass]);
   }
 
-  _hasDocReferences(collectionName, id) {
+  _hasDocReferences(collectionName: string, id: string) {
     // Check if any fetched or subscribed queries currently have the
     // id in their results
     const queries = this.root._queries.collections[collectionName];
@@ -2086,5 +2244,268 @@ export class ChildModel extends Model {
     this._silent = model._silent;
     this._eventContext = model._eventContext;
     this._preventCompose = model._preventCompose;
+  }
+}
+
+
+
+
+// ** bundle
+
+function stripComputed(root: Model) {
+  const silentModel = root.silent();
+  const refListsMap = root._refLists.fromMap;
+  const fnsMap = root._fns.fromMap;
+  for (var from in refListsMap) {
+    silentModel._del(refListsMap[from].fromSegments);
+  }
+  for (var from in fnsMap) {
+    silentModel._del(fnsMap[from].fromSegments);
+  }
+  silentModel.removeAllFilters();
+  silentModel.destroy('$queries');
+}
+
+function serializeCollections(root: Model) {
+  const out = {};
+  for (const collectionName in root.collections) {
+    const collection = root.collections[collectionName];
+    out[collectionName] = {};
+    for (const id in collection.docs) {
+      const doc = collection.docs[id];
+      const shareDoc = doc.shareDoc;
+      let snapshot;
+      if (shareDoc) {
+        snapshot = {
+          v: shareDoc.version,
+          data: shareDoc.data
+        };
+        if (shareDoc.type !== defaultType) {
+          snapshot.type = doc.shareDoc.type && doc.shareDoc.type.name;
+        }
+      } else {
+        snapshot = doc.data;
+      }
+      out[collectionName][id] = snapshot;
+    }
+  }
+  return out;
+}
+
+function errorOnCommit() {
+  this.emit('error', new Error('Model mutation performed after bundling'));
+}
+
+// ** events
+
+function Passed(previous, value) {
+  for (var key in previous) {
+    this[key] = previous[key];
+  }
+  for (var key in value) {
+    this[key] = value[key];
+  }
+}
+
+function patternContained(pattern: string, segments: string[], listener) {
+  const listenerSegments = listener.patternSegments;
+  if (!listenerSegments) return false;
+  if (pattern === listener.pattern || pattern === '**') return true;
+  const len = segments.length;
+  if (len > listenerSegments.length) return false;
+  for (let i = 0; i < len; i++) {
+    if (segments[i] !== listenerSegments[i]) return false;
+  }
+  return true;
+}
+
+function eventListener(model: Model, subpattern, cb) {
+  if (cb) {
+    // For signatures:
+    // model.on('change', 'example.subpath', callback)
+    // model.at('example').on('change', 'subpath', callback)
+    const pattern = model.path(subpattern);
+    return modelEventListener(pattern, cb, model._eventContext);
+  }
+  const path = model.path();
+  cb = arguments[1];
+  // For signature:
+  // model.at('example').on('change', callback)
+  if (path) return modelEventListener(path, cb, model._eventContext);
+  // For signature:
+  // model.on('normalEvent', callback)
+  return cb;
+}
+
+function modelEventListener(pattern, cb, eventContext) {
+  const patternSegments = util.castSegments(pattern.split('.'));
+  const testFn = testPatternFn(pattern, patternSegments);
+
+  function modelListener(segments: string[], eventArgs) {
+    const captures = testFn(segments);
+    if (!captures) return;
+
+    const args = (captures.length) ? captures.concat(eventArgs) : eventArgs;
+    cb.apply(null, args);
+    return true;
+  }
+
+  // Used in Model#removeAllListeners
+  (<any>modelListener).pattern = pattern;
+  (<any>modelListener).patternSegments = patternSegments;
+  (<any>modelListener).eventContext = eventContext;
+
+  return modelListener;
+}
+
+function testPatternFn(pattern: string, patternSegments): (segments: string[]) => string[] {
+  if (pattern === '**') {
+    return function testPattern(segments: string[]): string[] {
+      return [segments.join('.')];
+    };
+  }
+
+  const endingRest = stripRestWildcard(patternSegments);
+
+  return function testPattern(segments: string[]): string[] {
+    // Any pattern with more segments does not match
+    const patternLen = patternSegments.length;
+    if (patternLen > segments.length) return;
+
+    // A pattern with the same number of segments matches if each
+    // of the segments are wildcards or equal. A shorter pattern matches
+    // if it ends in a rest wildcard and each of the corresponding
+    // segments are wildcards or equal.
+    if (patternLen === segments.length || endingRest) {
+      const captures = [];
+      for (var i = 0; i < patternLen; i++) {
+        const patternSegment = patternSegments[i];
+        const segment = segments[i];
+        if (patternSegment === '*' || patternSegment === '**') {
+          captures.push(segment);
+          continue;
+        }
+        if (patternSegment !== segment) return;
+      }
+      if (endingRest) {
+        const remainder = segments.slice(i).join('.');
+        captures.push(remainder);
+      }
+      return captures;
+    }
+  };
+}
+
+function stripRestWildcard(segments: string[]): boolean {
+  // ['example', '**'] -> ['example']; return true
+  const lastIndex = segments.length - 1;
+  if (segments[lastIndex] === '**') {
+    segments.pop();
+    return true;
+  }
+  // ['example', 'subpath**'] -> ['example', 'subpath']; return true
+  const match = /^([^\*]+)\*\*$/.exec(segments[lastIndex]);
+  if (!match) return false;
+  segments[lastIndex] = match[1];
+  return true;
+}
+
+
+// ** filter
+
+function parseFilterArguments(model: Model, args: any[]) {
+  const fn = args.pop();
+  let options;
+  if (!model.isPath(args[args.length - 1])) {
+    options = args.pop();
+  }
+  const path = model.path(args.shift());
+  let i = args.length;
+  while (i--) {
+    args[i] = model.path(args[i]);
+  }
+  return {
+    path: path,
+    inputPaths: (args.length) ? args : null,
+    options: options,
+    fn: fn
+  };
+}
+
+
+// ** fn
+
+function parseStartArguments(model: Model, args: any[], hasPath: boolean) {
+  const last = args.pop();
+  let fns, name;
+  if (typeof last === 'string') {
+    name = last;
+  } else {
+    fns = last;
+  }
+  let path;
+  if (hasPath) {
+    path = model.path(args.shift());
+  }
+  let options;
+  if (!model.isPath(args[args.length - 1])) {
+    options = args.pop();
+  }
+  let i = args.length;
+  while (i--) {
+    args[i] = model.path(args[i]);
+  }
+  return {
+    name: name,
+    path: path,
+    inputPaths: args,
+    fns: fns,
+    options: options
+  };
+}
+
+
+// ** setDiff
+
+function diffDeep(model: Model, segments: string[], before, after, group: () => (err?: any) => void) {
+  if (typeof before !== 'object' || !before ||
+      typeof after !== 'object' || !after) {
+    // Set the entire value if not diffable
+    model._set(segments, after, group());
+    return;
+  }
+  if (Array.isArray(before) && Array.isArray(after)) {
+    const diff = arrayDiff(before, after, util.deepEqual);
+    if (!diff.length) return;
+    // If the only change is a single item replacement, diff the item instead
+    if (
+      diff.length === 2 &&
+      diff[0].index === diff[1].index &&
+      diff[0] instanceof arrayDiff.RemoveDiff &&
+      diff[0].howMany === 1 &&
+      diff[1] instanceof arrayDiff.InsertDiff &&
+      diff[1].values.length === 1
+    ) {
+      const index = diff[0].index;
+      var itemSegments = segments.concat(index);
+      diffDeep(model, itemSegments, before[index], after[index], group);
+      return;
+    }
+    model._applyArrayDiff(segments, diff, group());
+    return;
+  }
+
+  // Delete keys that were in before but not after
+  for (var key in before) {
+    if (key in after) continue;
+    var itemSegments = segments.concat(key);
+    model._del(itemSegments, group());
+  }
+
+  // Diff each property in after
+  for (var key in after) {
+    if (util.deepEqual(before[key], after[key])) continue;
+    var itemSegments = segments.concat(key);
+    diffDeep(model, itemSegments, before[key], after[key], group);
   }
 }

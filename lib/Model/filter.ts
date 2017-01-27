@@ -110,7 +110,7 @@ export class Filters {
       const filter = this.fromMap[from];
       // Don't try to bundle if functions were passed directly instead of by name
       if (!filter.bundle) continue;
-      const args = [from, filter.path, filter.filterName, filter.sortName, filter.inputPaths];
+      const args: (string | string[] | FilterOptions)[] = [from, filter.path, filter.filterName, filter.sortName, filter.inputPaths];
       if (filter.options) args.push(filter.options);
       out.push(args);
     }
@@ -133,7 +133,7 @@ export class Filter {
   private sortFn: compareFn;
 
   public inputPaths: string[];
-  public inputsSegments: string[];
+  public inputsSegments: string[][];  // array all input paths split into segment arrays
 
   private idsSegments: string[];
   private from: string;

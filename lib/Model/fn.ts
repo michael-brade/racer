@@ -133,7 +133,7 @@ export class Fns {
       // Don't try to bundle non-named functions that were started via
       // model.start directly instead of by name
       if (!fn.name) continue;
-      const args = [fn.from].concat(fn.inputPaths);
+      const args: any = [fn.from].concat(fn.inputPaths);
       if (fn.options) args.push(fn.options);
       args.push(fn.name);
       out.push(args);
@@ -172,7 +172,7 @@ export class Fn {
   private setFn: Function;
   public inputPaths: string[];
   public fromSegments: string[];
-  public inputsSegments: string[];
+  public inputsSegments: string[][];
 
   private copyInput: boolean;
   private copyOutput: boolean;
@@ -227,7 +227,7 @@ export class Fn {
     return this.apply(this.getFn, []);
   }
 
-  set(value, pass?: Object) {
+  set(value, pass?: Object): void {
     if (!this.setFn) return;
     const out = this.apply(this.setFn, [value]);
     if (!out) return;
@@ -245,9 +245,9 @@ export class Fn {
     return value;
   }
 
-  onOutput(pass?: Object) {
+  onOutput(pass?: Object): void {
     const value = this.model._get(this.fromSegments);
-    return this.set(value, pass);
+    this.set(value, pass);
   }
 
   // TODO: segments could be a string sometimes?! Does it hurt?

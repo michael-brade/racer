@@ -169,7 +169,7 @@ export default class Query {
   // set of each query on the same collection for every doc checked
   //
   // Map of id -> true
-  private idMap: IdMap;
+  public idMap: IdMap;
 
   private options;
   private expression;

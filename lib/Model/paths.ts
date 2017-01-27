@@ -1,5 +1,5 @@
 import Model from './Model';
-export const mixin = {};
+
 
 Model.prototype._splitPath = function(subpath) {
   const path = this.path(subpath);

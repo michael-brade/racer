@@ -14,7 +14,7 @@ Model.MUTATOR_EVENTS = {
   unload: true
 };
 
-Model.INITS.push(function(model) {
+Model.INITS.push(function(model: Model) {
   EventEmitter.call(this);
 
   // Set max listeners to unlimited
@@ -146,7 +146,7 @@ Model.prototype.removeAllListeners = function(type, subpattern) {
   const segments = pattern.split('.');
   // Make sure to iterate in reverse, since the array might be
   // mutated as listeners are removed
-  for (let i = listeners.length; i--;) {
+  for (let i = listeners.length; i--; ) {
     const listener = listeners[i];
     if (patternContained(pattern, segments, listener)) {
       this.removeListener(type, listener);
@@ -211,7 +211,7 @@ Model.prototype.removeContextListeners = function(value) {
     const listeners = this.listeners(type);
     // Make sure to iterate in reverse, since the array might be
     // mutated as listeners are removed
-    for (let i = listeners.length; i--;) {
+    for (let i = listeners.length; i--; ) {
       const listener = listeners[i];
       if (listener.eventContext === value) {
         this.removeListener(type, listener);
@@ -221,7 +221,7 @@ Model.prototype.removeContextListeners = function(value) {
   return this;
 };
 
-function eventListener(model, subpattern, cb) {
+function eventListener(model: Model, subpattern, cb) {
   if (cb) {
     // For signatures:
     // model.on('change', 'example.subpath', callback)
@@ -243,7 +243,7 @@ function modelEventListener(pattern, cb, eventContext) {
   const patternSegments = util.castSegments(pattern.split('.'));
   const testFn = testPatternFn(pattern, patternSegments);
 
-  function modelListener(segments, eventArgs) {
+  function modelListener(segments: string[], eventArgs) {
     const captures = testFn(segments);
     if (!captures) return;
 
@@ -253,23 +253,23 @@ function modelEventListener(pattern, cb, eventContext) {
   }
 
   // Used in Model#removeAllListeners
-  modelListener.pattern = pattern;
-  modelListener.patternSegments = patternSegments;
-  modelListener.eventContext = eventContext;
+  (<any>modelListener).pattern = pattern;
+  (<any>modelListener).patternSegments = patternSegments;
+  (<any>modelListener).eventContext = eventContext;
 
   return modelListener;
 }
 
-function testPatternFn(pattern, patternSegments) {
+function testPatternFn(pattern: string, patternSegments): (segments: string[]) => string[] {
   if (pattern === '**') {
-    return function testPattern(segments) {
+    return function testPattern(segments: string[]): string[] {
       return [segments.join('.')];
     };
   }
 
   const endingRest = stripRestWildcard(patternSegments);
 
-  return function testPattern(segments) {
+  return function testPattern(segments: string[]): string[] {
     // Any pattern with more segments does not match
     const patternLen = patternSegments.length;
     if (patternLen > segments.length) return;
@@ -298,7 +298,7 @@ function testPatternFn(pattern, patternSegments) {
   };
 }
 
-function stripRestWildcard(segments) {
+function stripRestWildcard(segments: string[]): boolean {
   // ['example', '**'] -> ['example']; return true
   const lastIndex = segments.length - 1;
   if (segments[lastIndex] === '**') {

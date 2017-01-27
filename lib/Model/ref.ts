@@ -290,7 +290,7 @@ export class Ref {
   public fromSegments: string[];
   public toSegments: string[];
   public parentTos: string[];
-  
+
   private updateIndices: boolean;
 
 
@@ -374,13 +374,13 @@ class PathMap {
       map = <PathMapType>map[segments[i]];
     }
 
-    map[segments[segments.length - 1]] = {'$item': item};
+    map[segments[segments.length - 1]] = { [Symbol.for('$item')]: item};
   }
 
   get(segments: string[]): Ref {
     const val = this._get(segments);
 
-    return (val && val['$item']) ? val['$item'] : void 0;
+    return (val && val[Symbol.for('$item')]) ? <Ref>val[Symbol.for('$item')] : void 0;
   }
 
   private _get(segments: string[]): PathMapType {
@@ -407,14 +407,14 @@ class PathMap {
 
 function flattenObj(obj: PathMapType): Ref[] {
   if (!obj) return [];
+  console.log('****** FLATTEN OBJ ******');
 
+  // obj[Symbol.for('$item')] is a Ref, everything else a PathMapType
   let arr: Ref[] = [];
+  if (obj[Symbol.for('$item')]) arr.push(<Ref>obj[Symbol.for('$item')]);
+
   const keys = Object.keys(obj);
-  if (obj['$item']) arr.push(obj['$item']);
-
   for (let i = 0, len = keys.length; i < len; i++) {
-    if (keys[i] === '$item') continue;
-
     arr = arr.concat(flattenObj(<PathMapType>obj[keys[i]]));
   }
 
@@ -463,14 +463,14 @@ class PathListMap {
     let map = this.map;
 
     for (let i = 0, len = segments.length - 1; i < len; i++) {
-      map[segments[i]] = map[segments[i]] || {'$items': []};
-      map = map[segments[i]];
+      map[segments[i]] = map[segments[i]] || { [Symbol.for('$items')]: [] };
+      map = <PathMapListType>map[segments[i]];
     }
 
     const segment = segments[segments.length - 1];
 
-    map[segment] = map[segment] || {'$items': []};
-    map[segment]['$items'].push(item);
+    map[segment] = map[segment] || {[Symbol.for('$items')]: []};
+    map[segment][Symbol.for('$items')].push(item);
   }
 
   get(segments: string[], onlyAtLevel: boolean): Ref[] {
@@ -481,7 +481,7 @@ class PathListMap {
       if (!val) return [];
     }
 
-    if (onlyAtLevel) return (val['$items'] || []);
+    if (onlyAtLevel) return (<Ref[]>val[Symbol.for('$items')] || []);
 
     return flatten(val);
   }
@@ -491,14 +491,12 @@ class PathListMap {
   }
 }
 
-function flatten(obj) {
-  const arr = obj['$items'] || [];
-	console.log('****** FLATTEN ******');
+function flatten(obj: PathMapListType): Ref[] {
+  const arr: Ref[] = <Ref[]>obj[Symbol.for('$items')] || [];
+  console.log('****** FLATTEN ******');
+
   const keys = Object.keys(obj);
-
   for (let i = 0, len = keys.length; i < len; i++) {
-    if (keys[i] === '$items') continue;
-
     arr.concat(flatten(<PathMapListType>obj[keys[i]]));
   }
 
@@ -509,9 +507,9 @@ function delList(map: PathMapListType, segments: string[], item: Ref, safe): boo
   const segment = segments.shift();
 
   if (!segments.length) {
-    if (!map[segment] || !map[segment]['$items']) return true;
+    if (!map[segment] || !map[segment][Symbol.for('$items')]) return true;
 
-    const items = map[segment]['$items'];
+    const items = map[segment][Symbol.for('$items')];
     const keys = Object.keys(map[segment]);
 
     if (items.length < 2 && keys.length < 2) {
@@ -533,8 +531,8 @@ function delList(map: PathMapListType, segments: string[], item: Ref, safe): boo
   const nextMap = map[segment];
   if (!nextMap) return true;
 
-  const nextSafe = (Object.keys(nextMap).length > 2 || nextMap['$items'].length);
-  const remove = delList(nextMap, segments, item, nextSafe);
+  const nextSafe = (Object.keys(nextMap).length > 2 || nextMap[Symbol.for('$items')].length);
+  const remove = delList(<PathMapListType>nextMap, segments, item, nextSafe);
 
   if (remove) {
     if (safe) {

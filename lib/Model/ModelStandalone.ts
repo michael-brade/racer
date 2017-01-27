@@ -10,14 +10,27 @@ import { Collection,
 import { Doc }          from './Doc';
 import LocalDoc         from './LocalDoc';
 
+// setDiff
+import arrayDiff        from 'arraydiff';
 
-require('./mutators');
-require('./setDiff');
+// fn
+import { Fns,
+         NamedFns }     from './fn';
 
-require('./fn');
-require('./filter');
-require('./refList');
-require('./ref');
+// filter
+import { Filter,
+         Filters }      from './filter';
+
+// ref
+import { Ref, Refs }    from './ref';
+
+// refList
+import { RefList,
+         RefLists }     from './refList';
+
+// only for type
+import Query            from './Query';
+
 
 
 export interface Options {
@@ -69,7 +82,18 @@ export default class Model extends EventEmitter {
   collections: CollectionMap;
   data: ModelData;
 
+  // fn
+  _namedFns: NamedFns;
+  _fns: Fns;
 
+  // filter
+  _filters: Filters;
+
+  // ref
+  _refs: Refs;
+
+  // refList
+  _refLists: RefLists;
 
 
   // CTOR
@@ -446,6 +470,1158 @@ export default class Model extends EventEmitter {
     }
   }
 
+
+  ///////////////////////
+  // mutators
+  ///////////////////////
+
+  _mutate(segments: string[], fn, cb) {
+    cb = this.wrapCallback(cb);
+    const collectionName = segments[0];
+    const id = segments[1];
+    if (!collectionName || !id) {
+      const message = fn.name + ' must be performed under a collection ' +
+        'and document id. Invalid path: ' + segments.join('.');
+      return cb(new Error(message));
+    }
+    const doc = this.getOrCreateDoc(collectionName, id);
+    const docSegments = segments.slice(2);
+    if (this._preventCompose && doc.shareDoc) {
+      const oldPreventCompose = doc.shareDoc.preventCompose;
+      doc.shareDoc.preventCompose = true;
+      const out = fn(doc, docSegments, cb);
+      doc.shareDoc.preventCompose = oldPreventCompose;
+      return out;
+    }
+    return fn(doc, docSegments, cb);
+  }
+
+  set() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._set(segments, value, cb);
+  }
+
+  _set(segments: string[], value, cb?: Function) {
+    segments = this._dereference(segments);
+    const model = this;
+    function set(doc: Doc, docSegments: string[], fnCb: Function) {
+      const previous = doc.set(docSegments, value, fnCb);
+      // On setting the entire doc, remote docs sometimes do a copy to add the
+      // id without it being stored in the database by ShareJS
+      if (docSegments.length === 0) value = doc.get(docSegments);
+      model.emit('change', segments, [value, previous, model._pass]);
+      return previous;
+    }
+    return this._mutate(segments, set, cb);
+  }
+
+  setNull() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setNull(segments, value, cb);
+  }
+
+  _setNull(segments: string[], value, cb) {
+    segments = this._dereference(segments);
+    const model = this;
+    function setNull(doc: Doc, docSegments: string[], fnCb: Function) {
+      const previous = doc.get(docSegments);
+      if (previous != null) {
+        fnCb();
+        return previous;
+      }
+      doc.set(docSegments, value, fnCb);
+      model.emit('change', segments, [value, previous, model._pass]);
+      return value;
+    }
+    return this._mutate(segments, setNull, cb);
+  }
+
+  setEach() {
+    let subpath, object, cb;
+    if (arguments.length === 1) {
+      object = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      object = arguments[1];
+    } else {
+      subpath = arguments[0];
+      object = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setEach(segments, object, cb);
+  }
+
+  _setEach(segments: string[], object, cb) {
+    segments = this._dereference(segments);
+    const group = util.asyncGroup(this.wrapCallback(cb));
+    for (const key in object) {
+      const value = object[key];
+      this._set(segments.concat(key), value, group());
+    }
+  }
+
+  create() {
+    let subpath, value, cb;
+    if (arguments.length === 0) {
+      value = {};
+    } else if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        value = {};
+        cb = arguments[0];
+      } else {
+        value = arguments[0];
+      }
+    } else if (arguments.length === 2) {
+      if (typeof arguments[1] === 'function') {
+        value = arguments[0];
+        cb = arguments[1];
+      } else {
+        subpath = arguments[0];
+        value = arguments[1];
+      }
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._create(segments, value, cb);
+  }
+
+  _create(segments: string[], value, cb) {
+    segments = this._dereference(segments);
+    if (segments.length !== 2) {
+      const message = 'create may only be used on a document path. ' +
+        'Invalid path: ' + segments.join('.');
+      cb = this.wrapCallback(cb);
+      return cb(new Error(message));
+    }
+    const model = this;
+    function create(doc, docSegments, fnCb) {
+      let previous;
+      doc.create(value, fnCb);
+      // On creating the doc, remote docs do a copy to add the id without
+      // it being stored in the database by ShareJS
+      value = doc.get();
+      model.emit('change', segments, [value, previous, model._pass]);
+    }
+    this._mutate(segments, create, cb);
+  }
+
+  createNull() {
+    let subpath, value, cb;
+    if (arguments.length === 0) {
+      value = {};
+    } else if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        value = {};
+        cb = arguments[0];
+      } else {
+        value = arguments[0];
+      }
+    } else if (arguments.length === 2) {
+      if (typeof arguments[1] === 'function') {
+        value = arguments[0];
+        cb = arguments[1];
+      } else {
+        subpath = arguments[0];
+        value = arguments[1];
+      }
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._createNull(segments, value, cb);
+  }
+
+  _createNull(segments: string[], value, cb) {
+    segments = this._dereference(segments);
+    const doc = this.getDoc(segments[0], segments[1]);
+    if (doc && doc.get() != null) return;
+    this._create(segments, value, cb);
+  }
+
+  add() {
+    let subpath, value, cb;
+    if (arguments.length === 0) {
+      value = {};
+    } else if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        value = {};
+        cb = arguments[0];
+      } else {
+        value = arguments[0];
+      }
+    } else if (arguments.length === 2) {
+      if (typeof arguments[1] === 'function') {
+        value = arguments[0];
+        cb = arguments[1];
+      } else {
+        subpath = arguments[0];
+        value = arguments[1];
+      }
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._add(segments, value, cb);
+  }
+
+  _add(segments: string[], value: any, cb) {
+    if (typeof value !== 'object') {
+      const message = 'add requires an object value. Invalid value: ' + value;
+      cb = this.wrapCallback(cb);
+      return cb(new Error(message));
+    }
+    const id = value.id || this.id();
+    value.id = id;
+    segments = this._dereference(segments.concat(id));
+    const model = this;
+    function add(doc, docSegments, fnCb) {
+      let previous;
+      if (docSegments.length) {
+        previous = doc.set(docSegments, value, fnCb);
+      } else {
+        doc.create(value, fnCb);
+        // On creating the doc, remote docs do a copy to add the id without
+        // it being stored in the database by ShareJS
+        value = doc.get();
+      }
+      model.emit('change', segments, [value, previous, model._pass]);
+    }
+    this._mutate(segments, add, cb);
+    return id;
+  }
+
+  del() {
+    let subpath, cb;
+    if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        cb = arguments[0];
+      } else {
+        subpath = arguments[0];
+      }
+    } else {
+      subpath = arguments[0];
+      cb = arguments[1];
+    }
+    const segments = this._splitPath(subpath);
+    return this._del(segments, cb);
+  }
+
+  _del(segments: string[], cb?) {
+    segments = this._dereference(segments);
+    const model = this;
+    function del(doc, docSegments, fnCb) {
+      const previous = doc.del(docSegments, fnCb);
+      // When deleting an entire document, also remove the reference to the
+      // document object from its collection
+      if (segments.length === 2) {
+        const collectionName = segments[0];
+        const id = segments[1];
+        model.root.collections[collectionName].remove(id);
+      }
+      model.emit('change', segments, [undefined, previous, model._pass]);
+      return previous;
+    }
+    return this._mutate(segments, del, cb);
+  }
+
+  increment() {
+    let subpath, byNumber, cb;
+    if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        cb = arguments[0];
+      } else if (typeof arguments[0] === 'number') {
+        byNumber = arguments[0];
+      } else {
+        subpath = arguments[0];
+      }
+    } else if (arguments.length === 2) {
+      if (typeof arguments[1] === 'function') {
+        cb = arguments[1];
+        if (typeof arguments[0] === 'number') {
+          byNumber = arguments[0];
+        } else {
+          subpath = arguments[0];
+        }
+      } else {
+        subpath = arguments[0];
+        byNumber = arguments[1];
+      }
+    } else {
+      subpath = arguments[0];
+      byNumber = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._increment(segments, byNumber, cb);
+  }
+
+  _increment(segments: string[], byNumber: number, cb) {
+    segments = this._dereference(segments);
+    if (byNumber == null) byNumber = 1;
+    const model = this;
+    function increment(doc, docSegments, fnCb) {
+      const value = doc.increment(docSegments, byNumber, fnCb);
+      const previous = value - byNumber;
+      model.emit('change', segments, [value, previous, model._pass]);
+      return value;
+    }
+    return this._mutate(segments, increment, cb);
+  }
+
+  push() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._push(segments, value, cb);
+  }
+
+  _push(segments: string[], value, cb) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    const model = this;
+    function push(doc, docSegments, fnCb) {
+      const length = doc.push(docSegments, value, fnCb);
+      model.emit('insert', segments, [length - 1, [value], model._pass]);
+      return length;
+    }
+    return this._mutate(segments, push, cb);
+  }
+
+  unshift() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._unshift(segments, value, cb);
+  }
+
+  _unshift(segments: string[], value, cb) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    const model = this;
+    function unshift(doc, docSegments, fnCb) {
+      const length = doc.unshift(docSegments, value, fnCb);
+      model.emit('insert', segments, [0, [value], model._pass]);
+      return length;
+    }
+    return this._mutate(segments, unshift, cb);
+  }
+
+  insert() {
+    let subpath, index, values, cb;
+    if (arguments.length < 2) {
+      throw new Error('Not enough arguments for insert');
+    } else if (arguments.length === 2) {
+      index = arguments[0];
+      values = arguments[1];
+    } else if (arguments.length === 3) {
+      subpath = arguments[0];
+      index = arguments[1];
+      values = arguments[2];
+    } else {
+      subpath = arguments[0];
+      index = arguments[1];
+      values = arguments[2];
+      cb = arguments[3];
+    }
+    const segments = this._splitPath(subpath);
+    return this._insert(segments, +index, values, cb);
+  }
+
+  _insert(segments: string[], index: number, values, cb?) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    const model = this;
+    function insert(doc, docSegments, fnCb) {
+      const inserted = (Array.isArray(values)) ? values : [values];
+      const length = doc.insert(docSegments, index, inserted, fnCb);
+      model.emit('insert', segments, [index, inserted, model._pass]);
+      return length;
+    }
+    return this._mutate(segments, insert, cb);
+  }
+
+  pop() {
+    let subpath, cb;
+    if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        cb = arguments[0];
+      } else {
+        subpath = arguments[0];
+      }
+    } else {
+      subpath = arguments[0];
+      cb = arguments[1];
+    }
+    const segments = this._splitPath(subpath);
+    return this._pop(segments, cb);
+  }
+
+  _pop(segments: string[], cb) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    const model = this;
+    function pop(doc, docSegments, fnCb) {
+      const arr = doc.get(docSegments);
+      const length = arr && arr.length;
+      if (!length) {
+        fnCb();
+        return;
+      }
+      const value = doc.pop(docSegments, fnCb);
+      model.emit('remove', segments, [length - 1, [value], model._pass]);
+      return value;
+    }
+    return this._mutate(segments, pop, cb);
+  }
+
+  shift() {
+    let subpath, cb;
+    if (arguments.length === 1) {
+      if (typeof arguments[0] === 'function') {
+        cb = arguments[0];
+      } else {
+        subpath = arguments[0];
+      }
+    } else {
+      subpath = arguments[0];
+      cb = arguments[1];
+    }
+    const segments = this._splitPath(subpath);
+    return this._shift(segments, cb);
+  }
+
+  _shift(segments: string[], cb) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    const model = this;
+    function shift(doc, docSegments, fnCb) {
+      const arr = doc.get(docSegments);
+      const length = arr && arr.length;
+      if (!length) {
+        fnCb();
+        return;
+      }
+      const value = doc.shift(docSegments, fnCb);
+      model.emit('remove', segments, [0, [value], model._pass]);
+      return value;
+    }
+    return this._mutate(segments, shift, cb);
+  }
+
+  remove() {
+    let subpath, index, howMany, cb;
+    if (arguments.length < 2) {
+      index = arguments[0];
+    } else if (arguments.length === 2) {
+      if (typeof arguments[1] === 'function') {
+        cb = arguments[1];
+        if (typeof arguments[0] === 'number') {
+          index = arguments[0];
+        } else {
+          subpath = arguments[0];
+        }
+      } else {
+        // eslint-disable-next-line no-lonely-if
+        if (typeof arguments[0] === 'number') {
+          index = arguments[0];
+          howMany = arguments[1];
+        } else {
+          subpath = arguments[0];
+          index = arguments[1];
+        }
+      }
+    } else if (arguments.length === 3) {
+      if (typeof arguments[2] === 'function') {
+        cb = arguments[2];
+        if (typeof arguments[0] === 'number') {
+          index = arguments[0];
+          howMany = arguments[1];
+        } else {
+          subpath = arguments[0];
+          index = arguments[1];
+        }
+      } else {
+        subpath = arguments[0];
+        index = arguments[1];
+        howMany = arguments[2];
+      }
+    } else {
+      subpath = arguments[0];
+      index = arguments[1];
+      howMany = arguments[2];
+      cb = arguments[3];
+    }
+    const segments = this._splitPath(subpath);
+    if (index == null) index = segments.pop();
+    return this._remove(segments, +index, howMany, cb);
+  }
+
+  _remove(segments: string[], index: number, howMany: number, cb?) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    if (howMany == null) howMany = 1;
+    const model = this;
+    function remove(doc, docSegments, fnCb) {
+      const removed = doc.remove(docSegments, index, howMany, fnCb);
+      model.emit('remove', segments, [index, removed, model._pass]);
+      return removed;
+    }
+    return this._mutate(segments, remove, cb);
+  }
+
+  move() {
+    let subpath, from, to, howMany, cb;
+    if (arguments.length < 2) {
+      throw new Error('Not enough arguments for move');
+    } else if (arguments.length === 2) {
+      from = arguments[0];
+      to = arguments[1];
+    } else if (arguments.length === 3) {
+      if (typeof arguments[2] === 'function') {
+        from = arguments[0];
+        to = arguments[1];
+        cb = arguments[2];
+      } else if (typeof arguments[0] === 'number') {
+        from = arguments[0];
+        to = arguments[1];
+        howMany = arguments[2];
+      } else {
+        subpath = arguments[0];
+        from = arguments[1];
+        to = arguments[2];
+      }
+    } else if (arguments.length === 4) {
+      if (typeof arguments[3] === 'function') {
+        cb = arguments[3];
+        if (typeof arguments[0] === 'number') {
+          from = arguments[0];
+          to = arguments[1];
+          howMany = arguments[2];
+        } else {
+          subpath = arguments[0];
+          from = arguments[1];
+          to = arguments[2];
+        }
+      } else {
+        subpath = arguments[0];
+        from = arguments[1];
+        to = arguments[2];
+        howMany = arguments[3];
+      }
+    } else {
+      subpath = arguments[0];
+      from = arguments[1];
+      to = arguments[2];
+      howMany = arguments[3];
+      cb = arguments[4];
+    }
+    const segments = this._splitPath(subpath);
+    return this._move(segments, from, to, howMany, cb);
+  }
+
+  _move(segments: string[], from: number, to: number, howMany: number, cb?: Function) {
+    const forArrayMutator = true;
+    segments = this._dereference(segments, forArrayMutator);
+    if (howMany == null) howMany = 1;
+    const model = this;
+    function move(doc: Doc, docSegments: string[], fnCb: Function) {
+      // Cast to numbers
+      from = +from;
+      to = +to;
+      // Convert negative indices into positive
+      if (from < 0 || to < 0) {
+        const len = doc.get(docSegments).length;
+        if (from < 0) from += len;
+        if (to < 0) to += len;
+      }
+      const moved = doc.move(docSegments, from, to, howMany, fnCb);
+      model.emit('move', segments, [from, to, moved.length, model._pass]);
+      return moved;
+    }
+    return this._mutate(segments, move, cb);
+  }
+
+  stringInsert() {
+    let subpath, index, text, cb;
+    if (arguments.length < 2) {
+      throw new Error('Not enough arguments for stringInsert');
+    } else if (arguments.length === 2) {
+      index = arguments[0];
+      text = arguments[1];
+    } else if (arguments.length === 3) {
+      if (typeof arguments[2] === 'function') {
+        index = arguments[0];
+        text = arguments[1];
+        cb = arguments[2];
+      } else {
+        subpath = arguments[0];
+        index = arguments[1];
+        text = arguments[2];
+      }
+    } else {
+      subpath = arguments[0];
+      index = arguments[1];
+      text = arguments[2];
+      cb = arguments[3];
+    }
+    const segments = this._splitPath(subpath);
+    return this._stringInsert(segments, index, text, cb);
+  }
+
+  _stringInsert(segments: string[], index, text, cb) {
+    segments = this._dereference(segments);
+    const model = this;
+    function stringInsert(doc, docSegments, fnCb) {
+      const previous = doc.stringInsert(docSegments, index, text, fnCb);
+      const value = doc.get(docSegments);
+      const pass = model.pass({$stringInsert: {index: index, text: text}})._pass;
+      model.emit('change', segments, [value, previous, pass]);
+      return;
+    }
+    return this._mutate(segments, stringInsert, cb);
+  }
+
+  stringRemove() {
+    let subpath, index, howMany, cb;
+    if (arguments.length < 2) {
+      throw new Error('Not enough arguments for stringRemove');
+    } else if (arguments.length === 2) {
+      index = arguments[0];
+      howMany = arguments[1];
+    } else if (arguments.length === 3) {
+      if (typeof arguments[2] === 'function') {
+        index = arguments[0];
+        howMany = arguments[1];
+        cb = arguments[2];
+      } else {
+        subpath = arguments[0];
+        index = arguments[1];
+        howMany = arguments[2];
+      }
+    } else {
+      subpath = arguments[0];
+      index = arguments[1];
+      howMany = arguments[2];
+      cb = arguments[3];
+    }
+    const segments = this._splitPath(subpath);
+    return this._stringRemove(segments, index, howMany, cb);
+  }
+
+  _stringRemove(segments: string[], index, howMany, cb) {
+    segments = this._dereference(segments);
+    const model = this;
+    function stringRemove(doc, docSegments, fnCb) {
+      const previous = doc.stringRemove(docSegments, index, howMany, fnCb);
+      const value = doc.get(docSegments);
+      const pass = model.pass({$stringRemove: {index: index, howMany: howMany}})._pass;
+      model.emit('change', segments, [value, previous, pass]);
+      return;
+    }
+    return this._mutate(segments, stringRemove, cb);
+  }
+
+  subtypeSubmit() {
+    let subpath, subtype, subtypeOp, cb;
+    if (arguments.length < 2) {
+      throw new Error('Not enough arguments for subtypeSubmit');
+    } else if (arguments.length === 2) {
+      subtype = arguments[0];
+      subtypeOp = arguments[1];
+    } else if (arguments.length === 3) {
+      if (typeof arguments[2] === 'function') {
+        subtype = arguments[0];
+        subtypeOp = arguments[1];
+        cb = arguments[2];
+      } else {
+        subpath = arguments[0];
+        subtype = arguments[1];
+        subtypeOp = arguments[2];
+      }
+    } else {
+      subpath = arguments[0];
+      subtype = arguments[1];
+      subtypeOp = arguments[2];
+      cb = arguments[3];
+    }
+    const segments = this._splitPath(subpath);
+    return this._subtypeSubmit(segments, subtype, subtypeOp, cb);
+  }
+
+  _subtypeSubmit(segments: string[], subtype, subtypeOp, cb) {
+    segments = this._dereference(segments);
+    const model = this;
+    function subtypeSubmit(doc, docSegments, fnCb) {
+      const previous = doc.subtypeSubmit(docSegments, subtype, subtypeOp, fnCb);
+      const value = doc.get(docSegments);
+      const pass = model.pass({$subtype: {type: subtype, op: subtypeOp}})._pass;
+      // Emit undefined for the previous value, since we don't really know
+      // whether or not the previous value returned by the subtypeSubmit is the
+      // same object returned by reference or not. This may cause change
+      // listeners to over-trigger, but that is usually going to be better than
+      // under-triggering
+      model.emit('change', segments, [value, undefined, pass]);
+      return previous;
+    }
+    return this._mutate(segments, subtypeSubmit, cb);
+  }
+
+
+
+  ///////////////////////
+  // setDiff
+  ///////////////////////
+
+
+  setDiff() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setDiff(segments, value, cb);
+  }
+
+  _setDiff(segments, value, cb?) {
+    segments = this._dereference(segments);
+    const model = this;
+    function setDiff(doc, docSegments, fnCb) {
+      const previous = doc.get(docSegments);
+      if (util.equal(previous, value)) {
+        fnCb();
+        return previous;
+      }
+      doc.set(docSegments, value, fnCb);
+      model.emit('change', segments, [value, previous, model._pass]);
+      return previous;
+    }
+    return this._mutate(segments, setDiff, cb);
+  }
+
+  setDiffDeep() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setDiffDeep(segments, value, cb);
+  }
+
+  _setDiffDeep(segments, value, cb?) {
+    const before = this._get(segments);
+    cb = this.wrapCallback(cb);
+    const group = util.asyncGroup(cb);
+    const finished = group();
+    diffDeep(this, segments, before, value, group);
+    finished();
+  }
+
+  setArrayDiff() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setArrayDiff(segments, value, cb);
+  }
+
+  setArrayDiffDeep() {
+    let subpath, value, cb;
+    if (arguments.length === 1) {
+      value = arguments[0];
+    } else if (arguments.length === 2) {
+      subpath = arguments[0];
+      value = arguments[1];
+    } else {
+      subpath = arguments[0];
+      value = arguments[1];
+      cb = arguments[2];
+    }
+    const segments = this._splitPath(subpath);
+    return this._setArrayDiffDeep(segments, value, cb);
+  }
+
+  _setArrayDiffDeep(segments: string[], value, cb?) {
+    return this._setArrayDiff(segments, value, cb, util.deepEqual);
+  }
+
+  _setArrayDiff(segments: string[], value, cb?, _equalFn?) {
+    const before = this._get(segments);
+    if (before === value) return this.wrapCallback(cb)();
+    if (!Array.isArray(before) || !Array.isArray(value)) {
+      this._set(segments, value, cb);
+      return;
+    }
+    const diff = arrayDiff(before, value, _equalFn);
+    this._applyArrayDiff(segments, diff, cb);
+  }
+
+  _applyArrayDiff(segments, diff, cb?) {
+    if (!diff.length) return this.wrapCallback(cb)();
+    segments = this._dereference(segments);
+    const model = this;
+    function applyArrayDiff(doc, docSegments, fnCb) {
+      const group = util.asyncGroup(fnCb);
+      for (let i = 0, len = diff.length; i < len; i++) {
+        const item = diff[i];
+        if (item instanceof arrayDiff.InsertDiff) {
+          // Insert
+          doc.insert(docSegments, item.index, item.values, group());
+          model.emit('insert', segments, [item.index, item.values, model._pass]);
+        } else if (item instanceof arrayDiff.RemoveDiff) {
+          // Remove
+          const removed = doc.remove(docSegments, item.index, item.howMany, group());
+          model.emit('remove', segments, [item.index, removed, model._pass]);
+        } else if (item instanceof arrayDiff.MoveDiff) {
+          // Move
+          const moved = doc.move(docSegments, item.from, item.to, item.howMany, group());
+          model.emit('move', segments, [item.from, item.to, moved.length, model._pass]);
+        }
+      }
+    }
+    return this._mutate(segments, applyArrayDiff, cb);
+  }
+
+
+  ///////////////////////
+  // fn
+  ///////////////////////
+
+  fn(name: string, fns): void {
+    this.root._namedFns[name] = fns;
+  }
+
+  evaluate() {
+    const args = Array.prototype.slice.call(arguments);
+    const parsed = parseStartArguments(this, args, false);
+    return this.root._fns.get(parsed.name, parsed.inputPaths, parsed.fns, parsed.options);
+  }
+
+  start() {
+    const args = Array.prototype.slice.call(arguments);
+    const parsed = parseStartArguments(this, args, true);
+    return this.root._fns.start(parsed.name, parsed.path, parsed.inputPaths, parsed.fns, parsed.options);
+  }
+
+  stop(subpath: string | number): void {
+    const path = this.path(subpath);
+    this._stop(path);
+  }
+
+  _stop(fromPath): void {
+    this.root._fns.stop(fromPath);
+  }
+
+  stopAll(subpath: string | number): void {
+    const segments = this._splitPath(subpath);
+    this._stopAll(segments);
+  }
+
+  _stopAll(segments: string[]): void {
+    const fns = this.root._fns.fromMap;
+    for (const from in fns) {
+      const fromSegments = fns[from].fromSegments;
+      if (util.contains(segments, fromSegments)) {
+        this._stop(from);
+      }
+    }
+  }
+
+
+  ///////////////////////
+  // filter
+  ///////////////////////
+
+  filter(path: string, fn: Function): Filter;
+  filter(path: string, options: Object, fn: Function): Filter;
+  filter(path: string, inputPath1: string, fn: Function): Filter;
+  filter(path: string, inputPath1: string, options: Object, fn: Function): Filter;
+  filter(path: string, inputPath1: string, inputPath2: string, fn: Function): Filter;
+  filter(path: string, inputPath1: string, inputPath2: string, options: Object, fn: Function): Filter;
+  filter(): Filter {
+    const args = Array.prototype.slice.call(arguments);
+    const parsed = parseFilterArguments(this, args);
+    return this.root._filters.add(
+      parsed.path,
+      parsed.fn,
+      null,
+      parsed.inputPaths,
+      parsed.options
+    );
+  }
+
+  sort(path: string, fn: Function): Filter;
+  sort(path: string, options: Object, fn: Function): Filter;
+  sort(path: string, inputPath1: string, fn: Function): Filter;
+  sort(path: string, inputPath1: string, options: Object, fn: Function): Filter;
+  sort(path: string, inputPath1: string, inputPath2: string, fn: Function): Filter;
+  sort(path: string, inputPath1: string, inputPath2: string, options: Object, fn: Function): Filter;
+  sort(): Filter {
+    const args = Array.prototype.slice.call(arguments);
+    const parsed = parseFilterArguments(this, args);
+    return this.root._filters.add(
+      parsed.path,
+      null,
+      parsed.fn || 'asc',
+      parsed.inputPaths,
+      parsed.options
+    );
+  }
+
+  removeAllFilters(subpath?: string): void {
+    const segments = this._splitPath(subpath);
+    this._removeAllFilters(segments);
+  }
+
+  _removeAllFilters(segments: string[]): void {
+    const filters = this.root._filters.fromMap;
+    for (const from in filters) {
+      if (util.contains(segments, filters[from].fromSegments)) {
+        filters[from].destroy();
+      }
+    }
+  }
+
+
+  ///////////////////////
+  // ref
+  ///////////////////////
+
+  _canRefTo(value): boolean {
+    return this.isPath(value) || (value && typeof value.ref === 'function');
+  }
+
+  ref(to: string, options?: { updateIndices: boolean }): ChildModel;
+  ref(from: string, to: string | Query | Filter, options?: { updateIndices: boolean }): ChildModel;
+  ref(): ChildModel {
+    let from, to, options;
+    if (arguments.length === 1) {
+      to = arguments[0];
+    } else if (arguments.length === 2) {
+      if (this._canRefTo(arguments[1])) {
+        from = arguments[0];
+        to = arguments[1];
+      } else {
+        to = arguments[0];
+        options = arguments[1];
+      }
+    } else {
+      from = arguments[0];
+      to = arguments[1];
+      options = arguments[2];
+    }
+    const fromPath = this.path(from);
+    const toPath = this.path(to);
+    // Make ref to reffable object, such as query or filter
+    if (!toPath) return to.ref(fromPath);
+    const ref = new Ref(this.root, fromPath, toPath, options);
+    if (ref.fromSegments.length < 2) {
+      throw new Error('ref must be performed under a collection ' +
+        'and document id. Invalid path: ' + fromPath);
+    }
+    this.root._refs.remove(fromPath);
+    this.root._refLists.remove(fromPath);
+    const value = this.get(to);
+    ref.model._set(ref.fromSegments, value);
+    this.root._refs.add(ref);
+    return this.scope(fromPath);
+  }
+
+  removeRef(subpath: string|number): void {
+    const segments = this._splitPath(subpath);
+    const fromPath = segments.join('.');
+    this._removeRef(segments, fromPath);
+  }
+
+  _removeRef(segments: string[], fromPath: string): void {
+    this.root._refs.remove(fromPath);
+    this.root._refLists.remove(fromPath);
+    this._del(segments);
+  }
+
+  removeAllRefs(subpath: string | number): void {
+    const segments = this._splitPath(subpath);
+    this._removeAllRefs(segments);
+  }
+
+  _removeAllRefs(segments: string[]): void {
+    this._removePathMapRefs(segments, this.root._refs.fromPathMap);
+    this._removeMapRefs(segments, this.root._refLists.fromMap);
+  }
+
+  _removePathMapRefs(segments: string[], map): void {
+    const refs = map.getList(segments);
+    for (let i = 0, len = refs.length; i < len; i++) {
+      const ref = refs[i];
+      this._removeRef(ref.fromSegments, ref.from);
+    }
+  }
+
+  _removeMapRefs(segments: string[], map): void {
+    for (const from in map) {
+      const fromSegments = map[from].fromSegments;
+      if (util.contains(segments, fromSegments)) {
+        this._removeRef(fromSegments, from);
+      }
+    }
+  }
+
+  dereference(subpath) {
+    const segments = this._splitPath(subpath);
+    return this._dereference(segments).join('.');
+  }
+
+  _dereference(segments: string[], forArrayMutator?, ignore?) {
+    if (segments.length === 0) return segments;
+    const refs = this.root._refs.fromPathMap;
+    const refLists = this.root._refLists.fromMap;
+    let doAgain;
+    do {
+      let subpath = '';
+      doAgain = false;
+      for (let i = 0, len = segments.length; i < len; i++) {
+        subpath = (subpath) ? subpath + '.' + segments[i] : segments[i];
+
+        const ref = refs.get(subpath.split('.'));
+        if (ref) {
+          const remaining = segments.slice(i + 1);
+          segments = ref.toSegments.concat(remaining);
+          doAgain = true;
+          break;
+        }
+
+        const refList = refLists[subpath];
+        if (refList && refList !== ignore) {
+          const belowDescendant = i + 2 < len;
+          const belowChild = i + 1 < len;
+          if (!(belowDescendant || forArrayMutator && belowChild)) continue;
+          segments = refList.dereference(segments, i);
+          doAgain = true;
+          break;
+        }
+      }
+    } while (doAgain);
+    // If a dereference fails, return a path that will result in a null value
+    // instead of a path to everything in the model
+    if (segments.length === 0) return ['$null'];
+    return segments;
+  }
+
+
+  ///////////////////////
+  // refList
+  ///////////////////////
+
+  refList(from: string, to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
+  refList(to: string, ids: string, options?: { deleteRemoved: boolean }): ChildModel
+  refList(): ChildModel {
+    let from, to, ids, options;
+    if (arguments.length === 2) {
+      to = arguments[0];
+      ids = arguments[1];
+    } else if (arguments.length === 3) {
+      if (this.isPath(arguments[2])) {
+        from = arguments[0];
+        to = arguments[1];
+        ids = arguments[2];
+      } else {
+        to = arguments[0];
+        ids = arguments[1];
+        options = arguments[2];
+      }
+    } else {
+      from = arguments[0];
+      to = arguments[1];
+      ids = arguments[2];
+      options = arguments[3];
+    }
+    const fromPath = this.path(from);
+    let toPath;
+    if (Array.isArray(to)) {
+      toPath = [];
+      for (let i = 0; i < to.length; i++) {
+        toPath.push(this.path(to[i]));
+      }
+    } else {
+      toPath = this.path(to);
+    }
+    const idsPath = this.path(ids);
+    const refList = new RefList(this.root, fromPath, toPath, idsPath, options);
+    this.root._refLists.remove(fromPath);
+    refList.model._setArrayDiff(refList.fromSegments, refList.get());
+    this.root._refLists.add(refList);
+    return this.scope(fromPath);
+  }
+
 }
 
 
@@ -503,7 +1679,78 @@ Model.INITS.push((model: Model, options: Options) => {
   model.root.collections = new CollectionMap();
   model.root.data = new ModelData();
 
-});
+
+  ///////////////////////
+  // fn
+  ///////////////////////
+
+  model.root._namedFns = new NamedFns();
+  model.root._fns = new Fns(model);
+  model.on('all', fnListener);
+  function fnListener(segments: string, eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    const map = model.root._fns.fromMap;
+    for (const path in map) {
+      const fn = map[path];
+      if (pass.$fn === fn) continue;
+      if (util.mayImpactAny(fn.inputsSegments, segments)) {
+        // Mutation affecting input path
+        fn.onInput(pass);
+      } else if (util.mayImpact(fn.fromSegments, segments)) {
+        // Mutation affecting output path
+        fn.onOutput(pass);
+      }
+    }
+  }
+
+
+  ///////////////////////
+  // filter
+  ///////////////////////
+
+  model.root._filters = new Filters(model);
+  model.on('all', filterListener);
+  function filterListener(segments, eventArgs) {
+    const pass = eventArgs[eventArgs.length - 1];
+    const map = model.root._filters.fromMap;
+    for (const path in map) {
+      const filter = map[path];
+      if (pass.$filter === filter) continue;
+      if (
+        util.mayImpact(filter.segments, segments) ||
+        (filter.inputsSegments && util.mayImpactAny(filter.inputsSegments, segments))
+      ) {
+        filter.update(pass);
+      }
+    }
+  }
+
+
+  ///////////////////////
+  // refList
+  ///////////////////////
+
+  const root = model.root;
+  root._refLists = new RefLists();
+  for (const type in Model.MUTATOR_EVENTS) {
+    addRefListListener(root, type);
+  }
+
+
+  ///////////////////////
+  // ref
+  ///////////////////////
+
+  root._refs = new Refs();
+  addIndexListeners(root);
+  addListener(root, 'change', refChange);
+  addListener(root, 'load', refLoad);
+  addListener(root, 'unload', refUnload);
+  addListener(root, 'insert', refInsert);
+  addListener(root, 'remove', refRemove);
+  addListener(root, 'move', refMove);
+
+}); // Model.INITS
 
 
 
@@ -622,4 +1869,286 @@ function stripRestWildcard(segments: string[]): boolean {
   if (!match) return false;
   segments[lastIndex] = match[1];
   return true;
+}
+
+
+
+///////////////////////
+// setDiff
+///////////////////////
+
+
+function diffDeep(model: Model, segments: string[], before, after, group: () => (err?: any) => void) {
+  if (typeof before !== 'object' || !before ||
+      typeof after !== 'object' || !after) {
+    // Set the entire value if not diffable
+    model._set(segments, after, group());
+    return;
+  }
+  if (Array.isArray(before) && Array.isArray(after)) {
+    const diff = arrayDiff(before, after, util.deepEqual);
+    if (!diff.length) return;
+    // If the only change is a single item replacement, diff the item instead
+    if (
+      diff.length === 2 &&
+      diff[0].index === diff[1].index &&
+      diff[0] instanceof arrayDiff.RemoveDiff &&
+      diff[0].howMany === 1 &&
+      diff[1] instanceof arrayDiff.InsertDiff &&
+      diff[1].values.length === 1
+    ) {
+      const index = diff[0].index;
+      var itemSegments = segments.concat(index);
+      diffDeep(model, itemSegments, before[index], after[index], group);
+      return;
+    }
+    model._applyArrayDiff(segments, diff, group());
+    return;
+  }
+
+  // Delete keys that were in before but not after
+  for (var key in before) {
+    if (key in after) continue;
+    var itemSegments = segments.concat(key);
+    model._del(itemSegments, group());
+  }
+
+  // Diff each property in after
+  for (var key in after) {
+    if (util.deepEqual(before[key], after[key])) continue;
+    var itemSegments = segments.concat(key);
+    diffDeep(model, itemSegments, before[key], after[key], group);
+  }
+}
+
+
+///////////////////////
+// fn
+///////////////////////
+
+function parseStartArguments(model: Model, args: any[], hasPath: boolean) {
+  const last = args.pop();
+  let fns, name;
+  if (typeof last === 'string') {
+    name = last;
+  } else {
+    fns = last;
+  }
+  let path;
+  if (hasPath) {
+    path = model.path(args.shift());
+  }
+  let options;
+  if (!model.isPath(args[args.length - 1])) {
+    options = args.pop();
+  }
+  let i = args.length;
+  while (i--) {
+    args[i] = model.path(args[i]);
+  }
+  return {
+    name: name,
+    path: path,
+    inputPaths: args,
+    fns: fns,
+    options: options
+  };
+}
+
+///////////////////////
+// filter
+///////////////////////
+
+function parseFilterArguments(model: Model, args: any[]) {
+  const fn = args.pop();
+  let options;
+  if (!model.isPath(args[args.length - 1])) {
+    options = args.pop();
+  }
+  const path = model.path(args.shift());
+  let i = args.length;
+  while (i--) {
+    args[i] = model.path(args[i]);
+  }
+  return {
+    path: path,
+    inputPaths: (args.length) ? args : null,
+    options: options,
+    fn: fn
+  };
+}
+
+
+///////////////////////
+// ref
+///////////////////////
+
+/* This adds listeners to the {insert,move,remove}Immediate events.
+ *
+ * model is the root model.
+ */
+function addIndexListeners(model: Model) {
+  model.on('insertImmediate', function refInsertIndex(segments: string[], eventArgs: any[]) {
+    const index = eventArgs[0];
+    const howMany = eventArgs[1].length;
+    function patchInsert(refIndex: number) {
+      return (index <= refIndex) ? refIndex + howMany : refIndex;
+    }
+    onIndexChange(segments, patchInsert);
+  });
+  model.on('removeImmediate', function refRemoveIndex(segments: string[], eventArgs: any[]) {
+    const index = eventArgs[0];
+    const howMany = eventArgs[1].length;
+    function patchRemove(refIndex: number) {
+      return (index <= refIndex) ? refIndex - howMany : refIndex;
+    }
+    onIndexChange(segments, patchRemove);
+  });
+  model.on('moveImmediate', function refMoveIndex(segments: string[], eventArgs: any[]) {
+    const from = eventArgs[0];
+    const to = eventArgs[1];
+    const howMany = eventArgs[2];
+    function patchMove(refIndex: number) {
+      // If the index was moved itself
+      if (from <= refIndex && refIndex < from + howMany) {
+        return refIndex + to - from;
+      }
+      // Remove part of a move
+      if (from <= refIndex) refIndex -= howMany;
+      // Insert part of a move
+      if (to <= refIndex) refIndex += howMany;
+      return refIndex;
+    }
+    onIndexChange(segments, patchMove);
+  });
+  function onIndexChange(segments: string[], patch: (refIndex: number) => number): void {
+    const toPathMap = model._refs.toPathMap;
+    const refs = toPathMap.get(segments) || [];
+    console.log('onIndexChange - segments: ', segments, 'refs: ', refs);
+
+    for (let i = 0, len = refs.length; i < len; i++) {
+      const ref = refs[i];
+      const from = ref.from;
+      if (!(ref.updateIndices &&
+        ref.toSegments.length > segments.length)) continue;
+      const index = +ref.toSegments[segments.length];
+      const patched = patch(index);
+      if (index === patched) continue;
+      model._refs.remove(from);
+      ref.toSegments[segments.length] = '' + patched;
+      ref.to = ref.toSegments.join('.');
+      model._refs.add(ref);
+    }
+  }
+}
+
+function refChange(model: Model, dereferenced, eventArgs: any[], segments: string[]) {
+  const value = eventArgs[0];
+  // Detect if we are deleting vs. setting to undefined
+  if (value === undefined) {
+    const parentSegments = segments.slice();
+    const last = parentSegments.pop();
+    const parent = model._get(parentSegments);
+    if (!parent || !(last in parent)) {
+      model._del(dereferenced);
+      return;
+    }
+  }
+  model._set(dereferenced, value);
+}
+function refLoad(model, dereferenced, eventArgs) {
+  const value = eventArgs[0];
+  model._set(dereferenced, value);
+}
+function refUnload(model, dereferenced) {
+  model._del(dereferenced);
+}
+function refInsert(model, dereferenced, eventArgs) {
+  const index = eventArgs[0];
+  const values = eventArgs[1];
+  model._insert(dereferenced, index, values);
+}
+function refRemove(model, dereferenced, eventArgs) {
+  const index = eventArgs[0];
+  const howMany = eventArgs[1].length;
+  model._remove(dereferenced, index, howMany);
+}
+function refMove(model, dereferenced, eventArgs) {
+  const from = eventArgs[0];
+  const to = eventArgs[1];
+  const howMany = eventArgs[2];
+  model._move(dereferenced, from, to, howMany);
+}
+
+function addListener(model: Model, type: string, fn): void {
+  model.on(type + 'Immediate', refListener);
+  function refListener(segments: string[], eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    // Find cases where an event is emitted on a path where a reference
+    // is pointing. All original mutations happen on the fully dereferenced
+    // location, so this detection only needs to happen in one direction
+    const toPathMap = model._refs.toPathMap;
+    let subpath;
+    for (let i = 0, len = segments.length; i < len; i++) {
+      subpath = (subpath) ? subpath + '.' + segments[i] : segments[i];
+      // If a ref is found pointing to a matching subpath, re-emit on the
+      // place where the reference is coming from as if the mutation also
+      // occured at that path
+      var refs = toPathMap.get(subpath.split('.'), true);
+      if (!refs.length) continue;
+      const remaining = segments.slice(i + 1);
+      for (var refIndex = 0, numRefs = refs.length; refIndex < numRefs; refIndex++) {
+        var ref = refs[refIndex];
+        const dereferenced = ref.fromSegments.concat(remaining);
+        // The value may already be up to date via object reference. If so,
+        // simply re-emit the event. Otherwise, perform the same mutation on
+        // the ref's path
+        if (model._get(dereferenced) === model._get(segments)) {
+          model.emit(type, dereferenced, eventArgs);
+        } else {
+          var setterModel = ref.model.pass(pass, true);
+          setterModel._dereference = noopDereference;
+          fn(setterModel, dereferenced, eventArgs, segments);
+        }
+      }
+    }
+    // If a ref points to a child of a matching subpath, get the value in
+    // case it has changed and set if different
+    const parentToPathMap = model._refs.parentToPathMap;
+    var refs = parentToPathMap.get(subpath.split('.'), true);
+    if (!refs.length) return;
+    for (var refIndex = 0, numRefs = refs.length; refIndex < numRefs; refIndex++) {
+      var ref = refs[refIndex];
+      const value = model._get(ref.toSegments);
+      const previous = model._get(ref.fromSegments);
+      if (previous !== value) {
+        var setterModel = ref.model.pass(pass, true);
+        setterModel._dereference = noopDereference;
+        setterModel._set(ref.fromSegments, value);
+      }
+    }
+  }
+}
+
+function noopDereference(segments) {
+  return segments;
+}
+
+
+///////////////////////
+// refList
+///////////////////////
+
+function addRefListListener(model: Model, type: string) {
+  model.on(type + 'Immediate', refListListener);
+  function refListListener(segments: string[], eventArgs: any[]) {
+    const pass = eventArgs[eventArgs.length - 1];
+    // Check for updates on or underneath paths
+    const fromMap = model._refLists.fromMap;
+    for (const from in fromMap) {
+      const refList = fromMap[from];
+      if (pass.$refList === refList) continue;
+      refList.onMutation(type, segments, eventArgs);
+    }
+  }
 }

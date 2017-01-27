@@ -1,4 +1,4 @@
-import Doc from './Doc';
+import { Doc } from './Doc';
 import util from '../util';
 
 import Model from './Model';
@@ -28,7 +28,7 @@ export default class LocalDoc extends Doc {
     cb();
   }
 
-  set(segments, value, cb) {
+  set(segments: string[], value, cb: Function) {
     function set(node, key) {
       const previous = node[key];
       node[key] = value;
@@ -53,9 +53,9 @@ export default class LocalDoc extends Doc {
     return this._apply(segments, del, cb);
   }
 
-  increment(segments, byNumber, cb) {
+  increment(segments: string[], byNumber: number, cb) {
     const self = this;
-    function validate(value) {
+    function validate(value: number) {
       if (typeof value === 'number' || value == null) return;
       return new TypeError(self._errorMessage(
         'increment on non-number', segments, value
@@ -112,8 +112,8 @@ export default class LocalDoc extends Doc {
     return this._arrayApply(segments, remove, cb);
   }
 
-  move(segments, from, to, howMany, cb) {
-    function move(arr) {
+  move(segments: string[], from: number, to: number, howMany: number, cb) {
+    function move(arr: any[]) {
       // Remove from old location
       const values = arr.splice(from, howMany);
       // Insert in new location
@@ -143,7 +143,7 @@ export default class LocalDoc extends Doc {
     return this._validatedApply(segments, validate, stringInsert, cb);
   }
 
-  stringRemove(segments, index, howMany, cb) {
+  stringRemove(segments: string[], index: number, howMany: number, cb) {
     const self = this;
     function validate(value) {
       if (typeof value === 'string' || value == null) return;
@@ -161,7 +161,7 @@ export default class LocalDoc extends Doc {
     return this._validatedApply(segments, validate, stringRemove, cb);
   }
 
-  get(segments) {
+  get(segments?: string[]) {
     return util.lookup(segments, this.data);
   }
 
@@ -170,7 +170,7 @@ export default class LocalDoc extends Doc {
    * @param {Function} fn(node, key) applies a mutation on node[key]
    * @return {Object} returns the return value of fn(node, key)
    */
-  _createImplied(segments, fn) {
+  _createImplied(segments: string[], fn: Function) {
     let node = this;
     let key = 'data';
     let i = 0;
@@ -184,14 +184,14 @@ export default class LocalDoc extends Doc {
     return fn(node, key);
   }
 
-  _apply(segments, fn, cb) {
+  _apply(segments: string[], fn: Function, cb: Function) {
     const out = this._createImplied(segments, fn);
     this._updateCollectionData();
     cb();
     return out;
   }
 
-  _validatedApply(segments, validate, fn, cb) {
+  _validatedApply(segments: string[], validate: Function, fn: Function, cb: Function) {
     const out = this._createImplied(segments, (node, key) => {
       const err = validate(node[key]);
       if (err) return cb(err);
@@ -202,7 +202,7 @@ export default class LocalDoc extends Doc {
     return out;
   }
 
-  _arrayApply(segments, fn, cb) {
+  _arrayApply(segments: string[], fn, cb) {
     // Lookup a pointer to the property or nested property &
     // return the current value or create a new array
     const arr = this._createImplied(segments, nodeCreateArray);

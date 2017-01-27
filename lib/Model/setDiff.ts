@@ -56,7 +56,7 @@ Model.prototype._setDiffDeep = function(segments, value, cb) {
   diffDeep(this, segments, before, value, group);
   finished();
 };
-function diffDeep(model, segments, before, after, group) {
+function diffDeep(model: Model, segments: string[], before, after, group: () => (err?: any) => void) {
   if (typeof before !== 'object' || !before ||
       typeof after !== 'object' || !after) {
     // Set the entire value if not diffable

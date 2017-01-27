@@ -282,10 +282,10 @@ function noopDereference(segments) {
 
 
 export class Ref {
-  private model: Model;
+  public model: Model;
 
-  private from: string;
-  private to: string;
+  public from: string;
+  public to: string;
 
   public fromSegments: string[];
   public toSegments: string[];
@@ -351,19 +351,27 @@ export class Refs {
   }
 }
 
+
+
+// type PathMapType = { [path: string]: PathMapType } | { $item: Ref } ;
+type PathMapType = {
+  [path: string]: PathMapType | Ref
+};
+
+
 class PathMap {
-  private map: { [path: string]: Ref };
+  private map: PathMapType;
 
   constructor() {
     this.map = {};
   }
 
-  add(segments: string[], item: Ref) {
+  add(segments: string[], item: Ref): void {
     let map = this.map;
 
     for (let i = 0, len = segments.length - 1; i < len; i++) {
-      map[segments[i]] = map[segments[i]] || {}; // TODO: why empty Ref instead of undefined? useful??
-      map = map[segments[i]];
+      map[segments[i]] = map[segments[i]] || {}; // if nothing there yet, create empty map
+      map = <PathMapType>map[segments[i]];
     }
 
     map[segments[segments.length - 1]] = {'$item': item};
@@ -375,18 +383,18 @@ class PathMap {
     return (val && val['$item']) ? val['$item'] : void 0;
   }
 
-  _get(segments: string[]) {
+  private _get(segments: string[]): PathMapType {
     let val = this.map;
 
     for (let i = 0, len = segments.length; i < len; i++) {
-      val = val[segments[i]];
+      val = <PathMapType>val[segments[i]];
       if (!val) return;
     }
 
     return val;
   }
 
-  getList(segments: string[]) {
+  getList(segments: string[]): Ref[] {
     const obj = this._get(segments);
 
     return flattenObj(obj);
@@ -397,17 +405,17 @@ class PathMap {
   }
 }
 
-function flattenObj(obj): any[] {
+function flattenObj(obj: PathMapType): Ref[] {
   if (!obj) return [];
 
-  let arr = [];
+  let arr: Ref[] = [];
   const keys = Object.keys(obj);
   if (obj['$item']) arr.push(obj['$item']);
 
   for (let i = 0, len = keys.length; i < len; i++) {
     if (keys[i] === '$item') continue;
 
-    arr = arr.concat(flattenObj(obj[keys[i]]));
+    arr = arr.concat(flattenObj(<PathMapType>obj[keys[i]]));
   }
 
   return arr;
@@ -441,14 +449,17 @@ function del(map, segments: string[], safe: boolean): boolean {
   }
 }
 
+
+type PathMapListType = { [path: string]: (PathMapListType | Ref[]) };
+
 class PathListMap {
-  private map: { [segment: string]: Ref };  // TODO: really Ref?
+  private map: PathMapListType;
 
   constructor() {
     this.map = {};
   }
 
-  add(segments: string[], item) {
+  add(segments: string[], item: Ref): void {
     let map = this.map;
 
     for (let i = 0, len = segments.length - 1; i < len; i++) {
@@ -462,11 +473,11 @@ class PathListMap {
     map[segment]['$items'].push(item);
   }
 
-  get(segments, onlyAtLevel) {
+  get(segments: string[], onlyAtLevel: boolean): Ref[] {
     let val = this.map;
 
     for (let i = 0, len = segments.length; i < len; i++) {
-      val = val[segments[i]];
+      val = <PathMapListType>val[segments[i]];
       if (!val) return [];
     }
 
@@ -475,7 +486,7 @@ class PathListMap {
     return flatten(val);
   }
 
-  delete(segments: string[], item) {
+  delete(segments: string[], item: Ref): void {
     delList(this.map, segments.slice(0), item, true);
   }
 }
@@ -488,13 +499,13 @@ function flatten(obj) {
   for (let i = 0, len = keys.length; i < len; i++) {
     if (keys[i] === '$items') continue;
 
-    arr.concat(flatten(obj[keys[i]]));
+    arr.concat(flatten(<PathMapListType>obj[keys[i]]));
   }
 
   return arr;
 }
 
-function delList(map, segments, item, safe) {
+function delList(map: PathMapListType, segments: string[], item: Ref, safe): boolean {
   const segment = segments.shift();
 
   if (!segments.length) {

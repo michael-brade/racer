@@ -1,5 +1,5 @@
 import util from '../util';
-import Model from './Model';
+import Model, { ChildModel } from './Model';
 import defaultFns from './defaultFns';
 
 Model.INITS.push((model: Model) => {
@@ -21,7 +21,7 @@ Model.INITS.push((model: Model) => {
   }
 });
 
-function parseFilterArguments(model, args) {
+function parseFilterArguments(model: Model, args: any[]) {
   const fn = args.pop();
   let options;
   if (!model.isPath(args[args.length - 1])) {
@@ -86,6 +86,7 @@ interface FilterOptions {
   limit: number;
 }
 
+type filterFn = Function; // TODO!
 type compareFn = (a: any, b: any) => number;
 
 export class Filters {
@@ -99,7 +100,7 @@ export class Filters {
     this.fromMap = new FromMap();
   }
 
-  add(path, filterFn, sortFn, inputPaths, options) {
+  add(path: string, filterFn: string | filterFn, sortFn: string | compareFn, inputPaths: string[], options: FilterOptions) {
     return new Filter(this, path, filterFn, sortFn, inputPaths, options);
   }
 
@@ -118,7 +119,7 @@ export class Filters {
 }
 
 
-class Filter {
+export class Filter {
   private filters: Filters;
   private model: Model;
 
@@ -136,7 +137,7 @@ class Filter {
 
   private idsSegments: string[];
   private from: string;
-  private fromSegments: string[];
+  public fromSegments: string[];
 
   public skip: number;
   public limit: number;
@@ -147,7 +148,7 @@ class Filter {
   constructor(
     filters: Filters,
     path: string,
-    filterFn: Function | string,
+    filterFn: filterFn | string,
     sortFn: compareFn | string,
     inputPaths: string[],
     options: FilterOptions
@@ -211,7 +212,7 @@ class Filter {
     return this;
   }
 
-  _slice(results: Array<>): Array<> {
+  _slice(results: any[]): any[] {
     if (this.skip == null && this.limit == null) return results;
     const begin = this.skip || 0;
     // A limit of zero is equivalent to setting no limit
@@ -220,7 +221,7 @@ class Filter {
     return results.slice(begin, end);
   }
 
-  getInputs(): Array<> {
+  getInputs(): any[] {
     if (!this.inputsSegments) return;
     const inputs = [];
     for (let i = 0, len = this.inputsSegments.length; i < len; i++) {
@@ -285,12 +286,12 @@ class Filter {
     return this._slice(results);
   }
 
-  update(pass) {
+  update(pass?: Object): void {
     const ids = this.ids();
     this.model.pass(pass, true)._setArrayDiff(this.idsSegments, ids);
   }
 
-  ref(from: string) {
+  ref(from: string): ChildModel {
     from = this.model.path(from);
     this.from = from;
     this.fromSegments = from.split('.');

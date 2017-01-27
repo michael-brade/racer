@@ -36,7 +36,7 @@ Model.prototype.bundle = function(cb) {
   });
 };
 
-function stripComputed(root) {
+function stripComputed(root: Model) {
   const silentModel = root.silent();
   const refListsMap = root._refLists.fromMap;
   const fnsMap = root._fns.fromMap;
@@ -50,7 +50,7 @@ function stripComputed(root) {
   silentModel.destroy('$queries');
 }
 
-function serializeCollections(root) {
+function serializeCollections(root: Model) {
   const out = {};
   for (const collectionName in root.collections) {
     const collection = root.collections[collectionName];

@@ -1,23 +1,29 @@
 import Model from './Model';
 
-export default class Doc {
+export abstract class Doc {
   protected collectionName: string;
-  protected id;
+  protected id: string;
   protected collectionData;
 
-  constructor(model: Model, collectionName: string, id) {
+  constructor(model: Model, collectionName: string, id: string) {
     this.collectionName = collectionName;
     this.id = id;
     this.collectionData = model && model.data[collectionName];
   }
 
-  path(segments): string {
+  path(segments?: string[]): string {
     let path = this.collectionName + '.' + this.id;
-    if (segments && segments.lenth) path += '.' + segments.join('.');
+    if (segments && segments.length) path += '.' + segments.join('.');
     return path;
   }
 
-  protected _errorMessage(description, segments, value): string {
+
+  abstract get(segments?: string[]);
+  abstract set(segments: string[], value, cb: Function);
+  abstract increment(segments: string[], byNumber: number, cb);
+  abstract move(segments: string[], from: number, to: number, howMany: number, cb);
+
+  protected _errorMessage(description: string, segments: string[], value): string {
     return description + ' at ' + this.path(segments) + ': ' +
       JSON.stringify(value, null, 2);
   }

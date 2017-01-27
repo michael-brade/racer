@@ -372,18 +372,18 @@ Model.prototype.refList = function() {
   return this.scope(fromPath);
 };
 
-class RefList {
-  private model: Model;
+export class RefList {
+  public model: Model;
 
-  private from: string;
-  private to: string;
-  private ids: string;
+  public from: string;
+  public to: string;
+  public ids: string;
 
-  private fromSegments: string[];
+  public fromSegments: string[];
   private toSegments: string[];
   private idsSegments: string[];
 
-  private options: {
+  public options: {
     deleteRemoved: boolean
   };
 
@@ -414,8 +414,8 @@ class RefList {
   //   `key`   - The property under `to` at which an item is located
   //   `id`    - String or object in the array at the `ids` path
   //   `index` - The index of an id, which corresponds to an index on `from`
-  get() {
-    const ids = this.model._get(this.idsSegments);
+  get(): any[] {
+    const ids: any[] = this.model._get(this.idsSegments);
     if (!ids) return [];
     const items = this.model._get(this.toSegments);
     const out = [];
@@ -426,7 +426,7 @@ class RefList {
     return out;
   }
 
-  dereference(segments, i) {
+  dereference(segments: string[], i) {
     const remaining = segments.slice(i + 1);
     const key = this.idByIndex(remaining[0]);
     if (key == null) return [];
@@ -485,7 +485,9 @@ class RefList {
   }
 }
 
-class FromMap {}
+class FromMap {
+  [from: string]: RefList
+}
 
 export class RefLists {
   public fromMap: FromMap;
@@ -494,17 +496,17 @@ export class RefLists {
     this.fromMap = new FromMap();
   }
 
-  add(refList) {
+  add(refList: RefList): void {
     this.fromMap[refList.from] = refList;
   }
 
-  remove(from) {
+  remove(from: string): RefList {
     const refList = this.fromMap[from];
     delete this.fromMap[from];
     return refList;
   }
 
-  toJSON() {
+  toJSON(): any[] {
     const out = [];
     for (const from in this.fromMap) {
       const refList = this.fromMap[from];

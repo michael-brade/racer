@@ -6,7 +6,7 @@
  * 2. It maps incoming ShareJS operations to Racer events.
  */
 
-import Doc from './Doc';
+import { Doc } from './Doc';
 import Model from './Model';
 import util from '../util';
 
@@ -17,14 +17,15 @@ export default class RemoteDoc extends Doc {
 
   private debugMutations: boolean;
 
-  constructor(model: Model, collectionName, id, snapshot, collection) {
+  constructor(model: Model, collectionName: string, id: string, snapshot, collection) {
+    super(model, collectionName, id);
+
     // This is a bit messy, but we have to immediately register this doc on the
     // collection that added it, so that when we create the shareDoc and the
     // connection emits the 'doc' event, we'll find this doc instead of
     // creating a new one
     if (collection) collection.docs[id] = this;
 
-    super(model, collectionName, id);
     this.model = model.pass({$remote: true});
     this.debugMutations = model.root.debug.remoteMutations;
 
@@ -152,7 +153,7 @@ export default class RemoteDoc extends Doc {
     return previous;
   }
 
-  increment(segments, byNumber, cb) {
+  increment(segments: string[], byNumber: number, cb): number {
     if (this.debugMutations) {
       console.log('RemoteDoc increment', this.path(segments), byNumber);
     }
@@ -179,12 +180,12 @@ export default class RemoteDoc extends Doc {
     return previous + byNumber;
   }
 
-  push(segments, value, cb) {
+  push(segments: string[], value, cb) {
     if (this.debugMutations) {
       console.log('RemoteDoc push', this.path(segments), value);
     }
     const shareDoc = this.shareDoc;
-    function push(arr, fnCb) {
+    function push(arr: any[], fnCb): number {
       const op = [new ListInsertOp(segments, arr.length, value)];
       shareDoc.submitOp(op, fnCb);
       return arr.length;
@@ -326,7 +327,7 @@ export default class RemoteDoc extends Doc {
     return previous;
   }
 
-  subtypeSubmit(segments, subtype, subtypeOp, cb) {
+  subtypeSubmit(segments: string[], subtype, subtypeOp, cb) {
     if (this.debugMutations) {
       console.log('RemoteDoc subtypeSubmit', this.path(segments), subtype, subtypeOp);
     }
@@ -341,11 +342,11 @@ export default class RemoteDoc extends Doc {
     return previous;
   }
 
-  get(segments) {
+  get(segments?: string[]) {
     return util.lookup(segments, this.shareDoc.data);
   }
 
-  _createImplied(segments) {
+  _createImplied(segments: string[]) {
     if (!this.shareDoc.type) {
       throw new Error('Mutation on uncreated remote document');
     }
@@ -362,7 +363,7 @@ export default class RemoteDoc extends Doc {
         } else {
           value = util.isArrayIndex(nextKey) ? [] : {};
           if (Array.isArray(parent)) {
-            if (key >= parent.length) {
+            if (<any>key >= parent.length) {  // key is a number in a string here, so >= is ok
               op = new ListInsertOp(segments.slice(0, i - 2), key, value);
             } else {
               op = new ListReplaceOp(segments.slice(0, i - 2), key, node, value);
@@ -382,7 +383,7 @@ export default class RemoteDoc extends Doc {
     return node;
   }
 
-  _arrayApply(segments, fn, cb) {
+  _arrayApply(segments: string[], fn: (arr: any[], cb) => number, cb): number {
     let arr = this._createImplied(segments);
     if (arr instanceof ImpliedOp) {
       this.shareDoc.submitOp(arr.op);
@@ -469,7 +470,7 @@ export default class RemoteDoc extends Doc {
     } else if (defined(item.sd)) {
       var index = segments[segments.length - 1];
       var text = item.sd;
-      var howMany = text.length;
+      let howMany = text.length;
       segments = segments.slice(0, -1);
       var value = model._get(segments);
       var previous = value.slice(0, index) + text + value.slice(index);
@@ -479,7 +480,7 @@ export default class RemoteDoc extends Doc {
     // IncrementOp
     } else if (defined(item.na)) {
       var value = this.get(item.p);
-      var previous = value - item.na;
+      let previous = value - item.na;
       model.emit('change', segments, [value, previous, model._pass]);
 
     // SubtypeOp
@@ -517,49 +518,49 @@ function ImpliedOp(op, value) {
 }
 
 
-function ObjectReplaceOp(segments, before, after) {
+function ObjectReplaceOp(segments: string[], before, after) {
   this.p = util.castSegments(segments);
   this.od = before;
   this.oi = (after === undefined) ? null : after;
 }
-function ObjectInsertOp(segments, value) {
+function ObjectInsertOp(segments: string[], value) {
   this.p = util.castSegments(segments);
   this.oi = (value === undefined) ? null : value;
 }
-function ObjectDeleteOp(segments, value) {
+function ObjectDeleteOp(segments: string[], value) {
   this.p = util.castSegments(segments);
   this.od = (value === undefined) ? null : value;
 }
-function ListReplaceOp(segments, index, before, after) {
+function ListReplaceOp(segments: string[], index, before, after) {
   this.p = util.castSegments(segments.concat(index));
   this.ld = before;
   this.li = (after === undefined) ? null : after;
 }
-function ListInsertOp(segments, index, value) {
+function ListInsertOp(segments: string[], index, value) {
   this.p = util.castSegments(segments.concat(index));
   this.li = (value === undefined) ? null : value;
 }
-function ListRemoveOp(segments, index, value) {
+function ListRemoveOp(segments: string[], index, value) {
   this.p = util.castSegments(segments.concat(index));
   this.ld = (value === undefined) ? null : value;
 }
-function ListMoveOp(segments, from, to) {
+function ListMoveOp(segments: string[], from, to) {
   this.p = util.castSegments(segments.concat(from));
   this.lm = to;
 }
-function StringInsertOp(segments, index, value) {
+function StringInsertOp(segments: string[], index, value) {
   this.p = util.castSegments(segments.concat(index));
   this.si = value;
 }
-function StringRemoveOp(segments, index, value) {
+function StringRemoveOp(segments: string[], index, value) {
   this.p = util.castSegments(segments.concat(index));
   this.sd = value;
 }
-function IncrementOp(segments, byNumber) {
+function IncrementOp(segments: string[], byNumber: number) {
   this.p = util.castSegments(segments);
   this.na = byNumber;
 }
-function SubtypeOp(segments, subtype, subtypeOp) {
+function SubtypeOp(segments: string[], subtype, subtypeOp) {
   this.p = util.castSegments(segments);
   this.t = subtype;
   this.o = subtypeOp;

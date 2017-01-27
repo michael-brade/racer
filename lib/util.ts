@@ -1,27 +1,27 @@
-var deepIs = require('deep-is');
+import deepIs from 'deep-is';
 
 var isServer = process.title !== 'browser';
-exports.isServer = isServer;
+export {isServer};
 
-exports.asyncGroup = asyncGroup;
-exports.castSegments = castSegments;
-exports.contains = contains;
-exports.copy = copy;
-exports.copyObject = copyObject;
-exports.deepCopy = deepCopy;
-exports.deepEqual = deepIs;
-exports.equal = equal;
-exports.equalsNaN = equalsNaN;
-exports.isArrayIndex = isArrayIndex;
-exports.lookup = lookup;
-exports.mergeInto = mergeInto;
-exports.mayImpact = mayImpact;
-exports.mayImpactAny = mayImpactAny;
-exports.serverRequire = serverRequire;
-exports.serverUse = serverUse;
-exports.use = use;
+export {asyncGroup};
+export {castSegments};
+export {contains};
+export {copy};
+export {copyObject};
+export {deepCopy};
+export {deepIs as deepEqual};
+export {equal};
+export {equalsNaN};
+export {isArrayIndex};
+export {lookup};
+export {mergeInto};
+export {mayImpact};
+export {mayImpactAny};
+export {serverRequire};
+export {serverUse};
+export {use};
 
-function asyncGroup(cb) {
+function asyncGroup(cb): () => (err?: any) => void {
   var group = new AsyncGroup(cb);
   return function asyncGroupAdd() {
     return group.add();
@@ -32,31 +32,34 @@ function asyncGroup(cb) {
  * @constructor
  * @param {Function} cb(err)
  */
-function AsyncGroup(cb) {
-  this.cb = cb;
-  this.isDone = false;
-  this.count = 0;
-}
-AsyncGroup.prototype.add = function() {
-  this.count++;
-  var self = this;
-  return function(err) {
-    self.count--;
-    if (self.isDone) return;
-    if (err) {
-      self.isDone = true;
-      self.cb(err);
-      return;
-    }
-    if (self.count > 0) return;
-    self.isDone = true;
-    self.cb();
-  };
-};
+class AsyncGroup {
+  constructor(
+    private cb,
+    private isDone: boolean = false,
+    private count: number = 0
+  ) { }
 
-function castSegments(segments) {
+  add(): (err?: any) => void {
+    this.count++;
+    var self = this;
+    return function(err?) {
+      self.count--;
+      if (self.isDone) return;
+      if (err) {
+        self.isDone = true;
+        self.cb(err);
+        return;
+      }
+      if (self.count > 0) return;
+      self.isDone = true;
+      self.cb();
+    };
+  }
+}
+
+function castSegments(segments: (string|number)[]): (string|number)[] {
   // Cast number path segments from strings to numbers
-  for (var i = segments.length; i--;) {
+  for (var i = segments.length; i--; ) {
     var segment = segments[i];
     if (typeof segment === 'string' && isArrayIndex(segment)) {
       segments[i] = +segment;
@@ -65,7 +68,7 @@ function castSegments(segments) {
   return segments;
 }
 
-function contains(segments, testSegments) {
+function contains(segments: string[], testSegments: string[]) {
   for (var i = 0; i < segments.length; i++) {
     if (segments[i] !== testSegments[i]) return false;
   }
@@ -98,7 +101,7 @@ function deepCopy(value) {
     if (value === null) return null;
     if (Array.isArray(value)) {
       var array = [];
-      for (var i = value.length; i--;) {
+      for (var i = value.length; i--; ) {
         array[i] = deepCopy(value[i]);
       }
       return array;
@@ -127,7 +130,7 @@ function isArrayIndex(segment) {
   return (/^[0-9]+$/).test(segment);
 }
 
-function lookup(segments, value) {
+function lookup(segments: string[], value) {
   if (!segments) return value;
 
   for (var i = 0, len = segments.length; i < len; i++) {

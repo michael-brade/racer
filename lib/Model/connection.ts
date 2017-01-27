@@ -3,7 +3,7 @@ import Model from './Model';
 import LocalDoc from './LocalDoc';
 import RemoteDoc from './RemoteDoc';
 
-Model.INITS.push(model => {
+Model.INITS.push((model: Model) => {
   model.root._preventCompose = false;
 });
 

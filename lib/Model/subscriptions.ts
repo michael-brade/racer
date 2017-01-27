@@ -3,7 +3,7 @@ import Model from './Model';
 import Query from './Query';
 import CollectionCounter from './CollectionCounter';
 
-Model.INITS.push((model, options) => {
+Model.INITS.push((model: Model, options) => {
   model.root.fetchOnly = options.fetchOnly;
   model.root.unloadDelay = options.unloadDelay || (util.isServer) ? 0 : 1000;
 
@@ -158,7 +158,7 @@ Model.prototype.unsubscribeDoc = function(collectionName, id, cb) {
       shareDoc.unsubscribe(unsubscribeDocCallback);
     }
   }
-  function unsubscribeDocCallback(err) {
+  function unsubscribeDocCallback(err?) {
     model._maybeUnloadDoc(collectionName, id);
     if (err) return cb(err);
     cb(null, 0);

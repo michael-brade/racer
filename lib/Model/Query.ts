@@ -1,5 +1,5 @@
 import util from '../util';
-import Model from './Model';
+import Model, { ChildModel } from './Model';
 const defaultType = require('sharedb/lib/client').types.defaultType;
 
 
@@ -95,21 +95,24 @@ Model.prototype._initQueries = function(items) {
 
 
 export class Queries {
-  constructor() {
-    // Map is a flattened map of queries by hash. Currently used in contexts
-    this.map = {};
-    // Collections is a nested map of queries by collection then hash
-    this.collections = {};
-  }
 
-  add(query) {
+  // Map is a flattened map of queries by hash. Currently used in contexts
+  public map: { [hash: string]: Query } = {};
+
+  // Collections is a nested map of queries by collection then hash
+  public collections: {
+    [collectionName: string]: { [hash: string]: Query }
+  } = { };
+
+
+  add(query: Query): void {
     this.map[query.hash] = query;
     const collection = this.collections[query.collectionName] ||
       (this.collections[query.collectionName] = {});
     collection[query.hash] = query;
   }
 
-  remove(query) {
+  remove(query: Query): void {
     delete this.map[query.hash];
     const collection = this.collections[query.collectionName];
     if (!collection) return;
@@ -117,10 +120,10 @@ export class Queries {
     // Check if the collection still has any keys
     // eslint-disable-next-line no-unused-vars
     for (const key in collection) return;
-    delete this.collections[collection];
+    delete this.collections[collection];        // TODO: BUG
   }
 
-  get(collectionName, expression, options) {
+  get(collectionName: string, expression, options): Query {
     const hash = queryHash(collectionName, expression, options);
     return this.map[hash];
   }
@@ -137,7 +140,41 @@ export class Queries {
   }
 }
 
+type IdMap = { [id: string]: boolean };
+
 export default class Query {
+  public model: Model;
+
+  public collectionName: string;
+  public hash: string;
+  private segments: string[];
+  public idsSegments: string[];
+  private extraSegments: string[];
+
+  private _pendingSubscribeCallbacks: string[];
+
+  // These are used to help cleanup appropriately when calling unsubscribe and
+  // unfetch. A query won't be fully cleaned up until unfetch and unsubscribe
+  // are called the same number of times that fetch and subscribe were called.
+  public subscribeCount: number;
+  public fetchCount: number;
+
+  private created: boolean;
+  private shareQuery;
+
+  // idMap is checked in maybeUnload to see if the query is currently holding
+  // a reference to an id in its results set. This map is duplicative of the
+  // actual results id list stored in the model, but we are maintaining it,
+  // because otherwise maybeUnload would be looping through the entire results
+  // set of each query on the same collection for every doc checked
+  //
+  // Map of id -> true
+  private idMap: IdMap;
+
+  private options;
+  private expression;
+
+
   constructor(model: Model, collectionName: string, expression, options) {
     this.model = model.pass({$query: this});
     this.collectionName = collectionName;
@@ -150,26 +187,16 @@ export default class Query {
 
     this._pendingSubscribeCallbacks = [];
 
-    // These are used to help cleanup appropriately when calling unsubscribe and
-    // unfetch. A query won't be fully cleaned up until unfetch and unsubscribe
-    // are called the same number of times that fetch and subscribe were called.
     this.subscribeCount = 0;
     this.fetchCount = 0;
 
     this.created = false;
     this.shareQuery = null;
 
-    // idMap is checked in maybeUnload to see if the query is currently holding
-    // a reference to an id in its results set. This map is duplicative of the
-    // actual results id list stored in the model, but we are maintaining it,
-    // because otherwise maybeUnload would be looping through the entire results
-    // set of each query on the same collection for every doc checked
-    //
-    // Map of id -> true
     this.idMap = {};
   }
 
-  create() {
+  create(): void {
     this.created = true;
     this.model.root._queries.add(this);
   }
@@ -211,7 +238,7 @@ export default class Query {
     return this;
   }
 
-  subscribe(cb) {
+  subscribe(cb?): Query {
     cb = this.model.wrapCallback(cb);
     this.model._context.subscribeQuery(this);
 
@@ -297,7 +324,7 @@ export default class Query {
     });
   }
 
-  _removeMapIds(ids) {
+  _removeMapIds(ids: string[]) {
     for (let i = ids.length; i--; ) {
       const id = ids[i];
       delete this.idMap[id];
@@ -317,24 +344,24 @@ export default class Query {
     this._maybeUnloadDocs(ids);
   }
 
-  _addMapIds(ids) {
+  _addMapIds(ids: string[]): void {
     for (let i = ids.length; i--; ) {
       const id = ids[i];
       this.idMap[id] = true;
     }
   }
 
-  _diffMapIds(ids) {
-    const addedIds = [];
-    const removedIds = [];
-    const newMap = {};
-    for (let i = ids.length; i--; ) {
-      var id = ids[i];
+  _diffMapIds(ids: string[]): void {
+    const addedIds: string[] = [];
+    const removedIds: string[] = [];
+    const newMap: IdMap = {};
+    for (let i: number = ids.length; i--; ) {
+      let id = ids[i];
       newMap[id] = true;
       if (this.idMap[id]) continue;
       addedIds.push(id);
     }
-    for (var id in this.idMap) {
+    for (let id in this.idMap) {
       if (newMap[id]) continue;
       removedIds.push(id);
     }
@@ -342,22 +369,22 @@ export default class Query {
     if (removedIds.length) this._removeMapIds(removedIds);
   }
 
-  _setExtra(extra) {
+  _setExtra(extra): void {
     if (extra === undefined) return;
     this.model._setDiffDeep(this.extraSegments, extra);
   }
 
-  _setResults(results) {
+  _setResults(results): void {
     const ids = resultsIds(results);
     this._setResultIds(ids);
   }
 
-  _setResultIds(ids) {
+  _setResultIds(ids: string[]): void {
     this._diffMapIds(ids);
     this.model._setArrayDiff(this.idsSegments, ids);
   }
 
-  _maybeUnloadDocs(ids) {
+  _maybeUnloadDocs(ids: string[]): void {
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
       this.model._maybeUnloadDoc(this.collectionName, id);
@@ -367,7 +394,7 @@ export default class Query {
   // Flushes `_pendingSubscribeCallbacks`, calling each callback in the array,
   // with an optional error to pass into each. `_pendingSubscribeCallbacks` will
   // be empty after this runs.
-  _flushSubscribeCallbacks(err, cb) {
+  _flushSubscribeCallbacks(err, cb): void {
     cb(err);
     let pendingCallback;
     while ((pendingCallback = this._pendingSubscribeCallbacks.shift())) {
@@ -375,7 +402,7 @@ export default class Query {
     }
   }
 
-  unfetch(cb) {
+  unfetch(cb?): Query {
     cb = this.model.wrapCallback(cb);
     this.model._context.unfetchQuery(this);
 
@@ -401,7 +428,7 @@ export default class Query {
     return this;
   }
 
-  unsubscribe(cb) {
+  unsubscribe(cb?): Query {
     cb = this.model.wrapCallback(cb);
     this.model._context.unsubscribeQuery(this);
 
@@ -428,7 +455,7 @@ export default class Query {
 
       unsubscribeQueryCallback();
     }
-    function unsubscribeQueryCallback(err) {
+    function unsubscribeQueryCallback(err?) {
       if (err) return cb(err);
       // Cleanup when no fetches or subscribes remain
       if (!query.fetchCount) query.destroy();
@@ -437,7 +464,8 @@ export default class Query {
     return this;
   }
 
-  _getShareResults() {
+  // return an array of shareDocs
+  _getShareResults(): any[] {
     const ids = this.model._get(this.idsSegments);
     if (!ids) return;
 
@@ -480,17 +508,17 @@ export default class Query {
     return this.model._get(this.extraSegments);
   }
 
-  ref(from) {
+  ref(from: string): ChildModel {
     const idsPath = this.idsSegments.join('.');
     return this.model.refList(from, this.collectionName, idsPath);
   }
 
-  refIds(from) {
+  refIds(from: string): ChildModel {
     const idsPath = this.idsSegments.join('.');
     return this.model.root.ref(from, idsPath);
   }
 
-  refExtra(from, relPath) {
+  refExtra(from: string, relPath: string): ChildModel {
     let extraPath = this.extraSegments.join('.');
     if (relPath) extraPath += '.' + relPath;
     return this.model.root.ref(from, extraPath);
@@ -504,7 +532,7 @@ export default class Query {
       results = [];
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
-        const doc = collection.docs[id];
+        const doc = collection.docs[id];    // TODO: RemoteDoc!
         if (doc) {
           delete collection.docs[id];
           const data = doc.shareDoc.data;
@@ -552,12 +580,13 @@ export default class Query {
   }
 }
 
-function queryHash(collectionName, expression, options) {
+function queryHash(collectionName: string, expression, options): string {
   const args = [collectionName, expression, options];
   return JSON.stringify(args).replace(/\./g, '|');
 }
 
-function resultsIds(results) {
+// TODO: results has shareDocs! with id, not just any!
+function resultsIds(results: any[]): string[] {
   const ids = [];
   for (let i = 0; i < results.length; i++) {
     const shareDoc = results[i];

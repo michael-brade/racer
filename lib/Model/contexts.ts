@@ -39,13 +39,15 @@ Model.prototype.unloadAll = function() {
   }
 };
 
-export class Contexts {}
+export class Contexts {
+  [id: string]: Context;
+}
 
 class FetchedQueries {}
 class SubscribedQueries {}
 
 
-class Context {
+export class Context {
   private model: Model;
   private id: string; // 'root', or.... TODO
 
@@ -53,8 +55,8 @@ class Context {
   private subscribedDocs: CollectionCounter;
   private createdDocs: CollectionCounter;
 
-  private fetchedQueries: FetchedQueries;
-  private subscribedQueries: SubscribedQueries;
+  public fetchedQueries: FetchedQueries;
+  public subscribedQueries: SubscribedQueries;
 
 
   constructor(model: Model, id: string) {
@@ -79,23 +81,23 @@ class Context {
     };
   }
 
-  fetchDoc(collectionName: string, id) {
+  fetchDoc(collectionName: string, id: string) {
     this.fetchedDocs.increment(collectionName, id);
   }
 
-  subscribeDoc(collectionName: string, id) {
+  subscribeDoc(collectionName: string, id: string) {
     this.subscribedDocs.increment(collectionName, id);
   }
 
-  unfetchDoc(collectionName: string, id) {
+  unfetchDoc(collectionName: string, id: string) {
     this.fetchedDocs.decrement(collectionName, id);
   }
 
-  unsubscribeDoc(collectionName: string, id) {
+  unsubscribeDoc(collectionName: string, id: string) {
     this.subscribedDocs.decrement(collectionName, id);
   }
 
-  createDoc(collectionName: string, id) {
+  createDoc(collectionName: string, id: string) {
     this.createdDocs.increment(collectionName, id);
   }
 

@@ -29,7 +29,7 @@ Model.prototype.fn = function(name, fns) {
   this.root._namedFns[name] = fns;
 };
 
-function parseStartArguments(model: Model, args, hasPath) {
+function parseStartArguments(model: Model, args: any[], hasPath: boolean) {
   const last = args.pop();
   let fns, name;
   if (typeof last === 'string') {
@@ -157,7 +157,7 @@ interface FnGetSet {
   set: Function;
 }
 
-function isBidir(fns): fns is FnGetSet {
+function isTwoWay(fns): fns is FnGetSet {
   if (fns.get)
     return true;
 
@@ -196,8 +196,8 @@ export class Fn {
     if (!fns) {
       throw new TypeError('Model function not found: ' + name);
     }
-    this.getFn = isBidir(fns) ? fns.get : fns;
-    this.setFn = isBidir(fns) ? fns.set : undefined;
+    this.getFn = isTwoWay(fns) ? fns.get : fns;
+    this.setFn = isTwoWay(fns) ? fns.set : undefined;
     this.fromSegments = from && from.split('.');
     this.inputsSegments = [];
     for (let i = 0; i < this.inputPaths.length; i++) {
@@ -227,7 +227,7 @@ export class Fn {
     return this.apply(this.getFn, []);
   }
 
-  set(value, pass: Object) {
+  set(value, pass?: Object) {
     if (!this.setFn) return;
     const out = this.apply(this.setFn, [value]);
     if (!out) return;
@@ -235,22 +235,23 @@ export class Fn {
     const model = this.model.pass(pass, true);
     for (const key in out) {
       var value = (this.copyOutput) ? util.deepCopy(out[key]) : out[key];
-      this._setValue(model, inputsSegments[key], value);
+      this._setValue(model, inputsSegments[key], value);    /// TODO: segments is a string from here! see below
     }
   }
 
-  onInput(pass: Object) {
+  onInput(pass?: Object) {
     const value = (this.copyOutput) ? util.deepCopy(this.get()) : this.get();
     this._setValue(this.model.pass(pass, true), this.fromSegments, value);
     return value;
   }
 
-  onOutput(pass: Object) {
+  onOutput(pass?: Object) {
     const value = this.model._get(this.fromSegments);
     return this.set(value, pass);
   }
 
-  _setValue(model: Model, segments, value): void {
+  // TODO: segments could be a string sometimes?! Does it hurt?
+  _setValue(model: Model, segments: string[], value): void {
     if (this.mode === 'diffDeep') {
       model._setDiffDeep(segments, value);
     } else if (this.mode === 'arrayDeep') {

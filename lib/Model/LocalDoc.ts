@@ -1,11 +1,11 @@
 import { Doc } from './Doc';
-import util from '../util';
+import * as util from '../util';
 
 import Model from './Model';
 
 export default class LocalDoc extends Doc {
 
-  private data;
+  public data;
 
   constructor(model: Model, collectionName: string, id, data) {
     super(model, collectionName, id);

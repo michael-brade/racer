@@ -2,7 +2,7 @@ import Model from './Model';
 import { Doc } from './Doc';
 import LocalDoc from './LocalDoc';
 
-import util from '../util';
+import * as util from '../util';
 
 
 export class CollectionMap {

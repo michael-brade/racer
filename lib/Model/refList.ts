@@ -1,4 +1,4 @@
-import util from '../util';
+import * as util from '../util';
 import Model from './Model';
 
 Model.INITS.push((model: Model) => {

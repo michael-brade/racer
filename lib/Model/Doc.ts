@@ -5,6 +5,9 @@ export abstract class Doc {
   protected id: string;
   protected collectionData;
 
+  public shareDoc;
+  public data;
+
   constructor(model: Model, collectionName: string, id: string) {
     this.collectionName = collectionName;
     this.id = id;

@@ -8,12 +8,12 @@
 
 import { Doc } from './Doc';
 import Model from './Model';
-import util from '../util';
+import * as util from '../util';
 
 export default class RemoteDoc extends Doc {
 
   private model: Model;
-  private shareDoc;
+  public shareDoc;
 
   private debugMutations: boolean;
 

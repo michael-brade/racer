@@ -1,5 +1,5 @@
 import {EventEmitter} from 'events';
-import util from '../util';
+import * as util from '../util';
 import Model from './Model';
 
 // These events are re-emitted as 'all' events, and they are queued up and

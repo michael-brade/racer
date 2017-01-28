@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import uuid             from 'uuid';
+import * as uuid        from 'uuid';
 import arrayDiff        from 'arraydiff';
 import { Connection, defaultType }  from 'sharedb/lib/client';
 
@@ -15,7 +15,7 @@ import Query, { Queries }       from './Query';
 import { Refs, Ref }            from './ref';
 import { RefLists, RefList }    from './refList';
 
-import util from '../util';
+import * as util from '../util';
 
 export default Model;
 
@@ -43,9 +43,10 @@ interface Model {
   data: ModelData;
 
   // connection
+  _preventCompose: boolean;
   connection;
   socket;
-  _createSocket(bundle): any;  // Model::_createSocket should be defined by the socket plugin
+  _createSocket: (bundle) => any;  // Model::_createSocket should be defined by the socket plugin
 
   // contexts
   _contexts: Contexts;
@@ -57,6 +58,9 @@ interface Model {
   _silent: boolean;
   _eventContext: any;       // seems like this can really be anything
   _defaultCallback: (err?) => void;
+
+  _events;
+  _maxListeners;
 
   // filter
   _filters: Filters;
@@ -85,12 +89,6 @@ interface Model {
   _fetchedDocs: CollectionCounter;
   // Track the total number of active susbscribes per doc
   _subscribedDocs: CollectionCounter;
-
-
-  _events;
-  _maxListeners;
-
-  _preventCompose: boolean;
 }
 
 // bundle.js
@@ -376,6 +374,7 @@ class Model extends EventEmitter {
     }
   }
 
+
   ///////////////////////
   // connection
   ///////////////////////
@@ -478,7 +477,9 @@ class Model extends EventEmitter {
   }
 
 
-  // ** contexts
+  ///////////////////////
+  // contexts
+  ///////////////////////
 
   context(id: string): ChildModel {
     const model = this._child();

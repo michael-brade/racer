@@ -1,4 +1,4 @@
-import util from '../util';
+import * as util from '../util';
 import Model, { ChildModel } from './Model';
 import defaultFns from './defaultFns';
 

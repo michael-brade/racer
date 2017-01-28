@@ -4,6 +4,7 @@
 import Model from './Model';
 import { ChildModel } from './Model';
 import CollectionCounter from './CollectionCounter';
+import Query from './Query';
 
 
 Model.INITS.push((model: Model) => {
@@ -43,8 +44,12 @@ export class Contexts {
   [id: string]: Context;
 }
 
-class FetchedQueries {}
-class SubscribedQueries {}
+export class FetchedQueries {
+   [key: string]: number;
+}
+export class SubscribedQueries {
+   [key: string]: number;
+}
 
 
 export class Context {
@@ -101,19 +106,19 @@ export class Context {
     this.createdDocs.increment(collectionName, id);
   }
 
-  fetchQuery(query) {
+  fetchQuery(query: Query) {
     mapIncrement(this.fetchedQueries, query.hash);
   }
 
-  subscribeQuery(query) {
+  subscribeQuery(query: Query) {
     mapIncrement(this.subscribedQueries, query.hash);
   }
 
-  unfetchQuery(query) {
+  unfetchQuery(query: Query) {
     mapDecrement(this.fetchedQueries, query.hash);
   }
 
-  unsubscribeQuery(query) {
+  unsubscribeQuery(query: Query) {
     mapDecrement(this.subscribedQueries, query.hash);
   }
 
@@ -155,10 +160,10 @@ export class Context {
   }
 }
 
-function mapIncrement(map, key) {
+function mapIncrement(map: { [key: string]: number }, key: string) {
   map[key] = (map[key] || 0) + 1;
 }
-function mapDecrement(map, key) {
+function mapDecrement(map: { [key: string]: number }, key: string) {
   map[key] && map[key]--;
   if (!map[key]) delete map[key];
 }

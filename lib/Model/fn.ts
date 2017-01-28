@@ -92,7 +92,7 @@ Model.prototype._stopAll = function(segments) {
   }
 };
 
-class FromMap {
+export class FromMap {
   [name: string]: Fn;
 }
 
@@ -142,17 +142,17 @@ export class Fns {
   }
 }
 
-type Mode = 'diffDeep' | 'diff' | 'arrayDeep' | 'array';
-type Copy = 'output' | 'input' | 'both' | 'none';
+export type ModeOptions = 'diffDeep' | 'diff' | 'arrayDeep' | 'array';
+export type CopyOptions = 'output' | 'input' | 'both' | 'none';
 
-interface FnOptions {
-  copy?: Copy;
-  mode?: Mode;
+export interface FnOptions {
+  copy?: CopyOptions;
+  mode?: ModeOptions;
 }
 
 interface FnGet {
 }
-interface FnGetSet {
+export interface FnGetSet {
   get: Function;
   set: Function;
 }
@@ -177,7 +177,7 @@ export class Fn {
   private copyInput: boolean;
   private copyOutput: boolean;
 
-  private mode: Mode;
+  private mode: ModeOptions;
   public options: FnOptions;
 
   constructor(

@@ -21,12 +21,12 @@ function setReverse(values) {
   return {0: getReverse(values)};
 }
 
-function asc(a, b) {
+export function asc(a, b) {
   if (a < b) return -1;
   if (a > b) return 1;
   return 0;
 }
-function desc(a, b) {
+export function desc(a, b) {
   if (a > b) return -1;
   if (a < b) return 1;
   return 0;

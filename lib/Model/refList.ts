@@ -475,7 +475,7 @@ export class RefList {
   }
 }
 
-class FromMap {
+export class FromMap {
   [from: string]: RefList
 }
 

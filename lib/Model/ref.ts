@@ -356,7 +356,7 @@ type PathMapType = {
 };
 
 
-class PathMap {
+export class PathMap {
   private map: PathMapType;
 
   constructor() {
@@ -449,7 +449,7 @@ function del(map, segments: string[], safe: boolean): boolean {
 
 type PathMapListType = { [path: string]: (PathMapListType | Ref[]) };
 
-class PathListMap {
+export class PathListMap {
   private map: PathMapListType;
 
   constructor() {

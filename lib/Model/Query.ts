@@ -140,7 +140,7 @@ export class Queries {
   }
 }
 
-type IdMap = { [id: string]: boolean };
+export type IdMap = { [id: string]: boolean };
 
 export default class Query {
   public model: Model;

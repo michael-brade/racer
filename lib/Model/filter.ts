@@ -77,17 +77,17 @@ Model.prototype._removeAllFilters = function(segments) {
   }
 };
 
-class FromMap {
+export class FromMap {
   [from: string]: Filter;
 }
 
-interface FilterOptions {
+export interface FilterOptions {
   skip: number;
   limit: number;
 }
 
-type filterFn = Function; // TODO!
-type compareFn = (a: any, b: any) => number;
+export type filterFn = Function; // TODO!
+export type compareFn = (a: any, b: any) => number;
 
 export class Filters {
 

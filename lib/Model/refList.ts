@@ -1,27 +1,6 @@
 import * as util from '../util';
 import Model from './Model';
 
-Model.INITS.push((model: Model) => {
-  const root = model.root;
-  root._refLists = new RefLists();
-  for (const type in Model.MUTATOR_EVENTS) {
-    addListener(root, type);
-  }
-});
-
-function addListener(model: Model, type: string) {
-  model.on(type + 'Immediate', refListListener);
-  function refListListener(segments: string[], eventArgs: any[]) {
-    const pass = eventArgs[eventArgs.length - 1];
-    // Check for updates on or underneath paths
-    const fromMap = model._refLists.fromMap;
-    for (const from in fromMap) {
-      const refList = fromMap[from];
-      if (pass.$refList === refList) continue;
-      refList.onMutation(type, segments, eventArgs);
-    }
-  }
-}
 
 function patchFromEvent(type: string, segments: string[], eventArgs: any[], refList: RefList): void {
   const fromLength = refList.fromSegments.length;

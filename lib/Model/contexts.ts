@@ -7,39 +7,6 @@ import CollectionCounter from './CollectionCounter';
 import Query from './Query';
 
 
-Model.INITS.push((model: Model) => {
-  model.root._contexts = new Contexts();
-  model.root.setContext('root');
-});
-
-Model.prototype.context = function(id): ChildModel {
-  const model = this._child();
-  model.setContext(id);
-  return model;
-};
-
-Model.prototype.setContext = function(id: string): void {
-  this._context = this.getOrCreateContext(id);
-};
-
-Model.prototype.getOrCreateContext = function(id: string) {
-  const context = this.root._contexts[id] ||
-    (this.root._contexts[id] = new Context(this, id));
-  return context;
-};
-
-Model.prototype.unload = function(id) {
-  const context = (id) ? this.root._contexts[id] : this._context;
-  context && context.unload();
-};
-
-Model.prototype.unloadAll = function() {
-  const contexts = this.root._contexts;
-  for (const key in contexts) {
-    contexts[key].unload();
-  }
-};
-
 export class Contexts {
   [id: string]: Context;
 }

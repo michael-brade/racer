@@ -7,8 +7,10 @@
  */
 
 import { Doc } from './Doc';
-import Model from './Model';
+import { ModelClientServer as Model } from './ModelClientServer';
+
 import * as util from '../util';
+
 
 export default class RemoteDoc extends Doc {
 
@@ -18,7 +20,7 @@ export default class RemoteDoc extends Doc {
   private debugMutations: boolean;
 
   constructor(model: Model, collectionName: string, id: string, snapshot, collection) {
-    super(model, collectionName, id);
+    super(model, collectionName, id, null, null);
 
     // This is a bit messy, but we have to immediately register this doc on the
     // collection that added it, so that when we create the shareDoc and the

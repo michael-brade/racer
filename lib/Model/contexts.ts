@@ -1,8 +1,7 @@
 /**
  * Contexts are useful for keeping track of the origin of subscribes.
  */
-import Model from './Model';
-import { ChildModel } from './Model';
+import { ModelClientServer as Model } from './ModelClientServer';
 import CollectionCounter from './CollectionCounter';
 import Query from './Query';
 

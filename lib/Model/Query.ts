@@ -1,5 +1,6 @@
 import * as util from '../util';
-import Model, { ChildModel } from './Model';
+import { ChildModel } from './Model';
+import { ModelClientServer as Model } from './ModelClientServer';
 const defaultType = require('sharedb/lib/client').types.defaultType;
 
 

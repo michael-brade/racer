@@ -8,7 +8,7 @@ export abstract class Doc {
   public shareDoc;
   public data;
 
-  constructor(model: Model, collectionName: string, id: string) {
+  constructor(model: Model, collectionName: string, id: string, data, collection) {
     this.collectionName = collectionName;
     this.id = id;
     this.collectionData = model && model.data[collectionName];

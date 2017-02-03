@@ -8,7 +8,7 @@ export default class LocalDoc extends Doc {
   public data;
 
   constructor(model: Model, collectionName: string, id, data) {
-    super(model, collectionName, id);
+    super(model, collectionName, id, null, null);
     this.data = data;
     this._updateCollectionData();
   }
